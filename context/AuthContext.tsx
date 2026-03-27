@@ -22,6 +22,8 @@ interface AuthContextType {
   createAdmin: (name: string, email: string, password: string) => Promise<any>; // ✅ ADD THIS
   changePassword: (currentPassword: string, newPassword: string) => Promise<any>;
   logout: () => Promise<void>;
+  isDarkMode: boolean;
+  toggleTheme: () => void;
 }
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
@@ -37,6 +39,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [socket, setSocket] = useState<Socket | null>(null);
+  const [isDarkMode, setIsDarkMode] = useState(false);
 
   // 1. JWT Interceptor: Automatically attach token to every request if it exists
   api.interceptors.request.use(async (config) => {
@@ -75,6 +78,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         if (savedToken && savedUser) {
           setToken(savedToken);
           setUser(JSON.parse(savedUser));
+        }
+
+        const savedTheme = await AsyncStorage.getItem("theme");
+        if (savedTheme !== null) {
+          setIsDarkMode(JSON.parse(savedTheme));
         }
       } catch (e) {
         console.error("Session restoration error:", e);
@@ -136,8 +144,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     }
   };
 
+  const toggleTheme = async () => {
+    const newVal = !isDarkMode;
+    setIsDarkMode(newVal);
+    await AsyncStorage.setItem("theme", JSON.stringify(newVal));
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, socket, login, signup, createAdmin, changePassword, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, socket, login, signup, createAdmin, changePassword, logout, isDarkMode, toggleTheme }}>
       {children}
     </AuthContext.Provider>
   );

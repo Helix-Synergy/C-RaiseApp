@@ -5,8 +5,8 @@ import Constants from "expo-constants";
 const debuggerHost = Constants.expoConfig?.hostUri;
 const localIp = debuggerHost ? debuggerHost.split(":")[0] : "localhost";
 
-const DEV_API_URL = `http://${localIp}:5000`;
-const PROD_API_URL = "https://your-production-backend.com"; // 👈 Replace when deploying
+const DEV_API_URL = "https://c-raise-backend.onrender.com";
+const PROD_API_URL = "https://c-raise-backend.onrender.com";
 
-export const BASE_URL = __DEV__ ? `${DEV_API_URL}/api` : `${PROD_API_URL}/api`;
-export const SOCKET_URL = __DEV__ ? DEV_API_URL : PROD_API_URL;
+export const BASE_URL = `${PROD_API_URL}/api`;
+export const SOCKET_URL = PROD_API_URL;

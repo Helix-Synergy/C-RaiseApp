@@ -5,23 +5,35 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
+
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, isDarkMode, toggleTheme } = useAuth();
   const router = useRouter();
+
+  // Dynamic Theme Colors
+  const colors = {
+    bg: isDarkMode ? "#0f172a" : "#f8fafc",
+    card: isDarkMode ? "#1e293b" : "#ffffff",
+    text: isDarkMode ? "#f1f5f9" : "#0f172a",
+    subtext: isDarkMode ? "#94a3b8" : "#475569",
+    border: isDarkMode ? "#334155" : "#e2e8f0",
+    accent: "#6366f1",
+    inputBg: isDarkMode ? "#0f172a" : "#f1f5f9",
+  };
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -35,13 +47,11 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       await login(email.trim(), password);
-
       Toast.show({
         type: "success",
         text1: "Login Successful 🎉",
         text2: "Welcome back!",
-      })
-      // _layout.tsx will automatically redirect based on role
+      });
     } catch (err: any) {
       const msg = err?.response?.data?.message || "Invalid email or password.";
       Toast.show({
@@ -56,57 +66,64 @@ export default function LoginScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, { backgroundColor: colors.bg }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <TouchableOpacity
+          style={[styles.themeToggle, { backgroundColor: colors.card, borderColor: colors.border }]}
+          onPress={toggleTheme}
+        >
+          <Ionicons name={isDarkMode ? "sunny-outline" : "moon-outline"} size={20} color={colors.accent} />
+        </TouchableOpacity>
+
         {/* Logo / Header */}
         <View style={styles.header}>
-          <View style={styles.logoCircle}>
-            <Ionicons name="ticket-outline" size={40} color="#6366f1" />
+          <View style={[styles.logoCircle, { backgroundColor: isDarkMode ? "#1e1b4b" : "rgba(99, 102, 241, 0.1)", borderColor: colors.accent }]}>
+            <Ionicons name="ticket-outline" size={40} color={colors.accent} />
           </View>
-          <Text style={styles.appName}>C-Raise</Text>
-          <Text style={styles.tagline}>Ticketing & Support Platform</Text>
+          <Text style={[styles.appName, { color: colors.text }]}>C-Raise</Text>
+          <Text style={[styles.tagline, { color: colors.subtext }]}>Ticketing & Support Platform</Text>
         </View>
 
         {/* Card */}
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Welcome Back</Text>
-          <Text style={styles.cardSubtitle}>Sign in to your account</Text>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <Text style={[styles.cardTitle, { color: colors.text }]}>Welcome Back</Text>
+          <Text style={[styles.cardSubtitle, { color: colors.subtext }]}>Log in to your account</Text>
 
           {/* Email */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email Address</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="mail-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.subtext }]}>Email Address</Text>
+            <View style={[styles.inputWrapper, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+              <Ionicons name="mail-outline" size={18} color={colors.subtext} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: colors.text }]}
                 placeholder="you@company.com"
-                placeholderTextColor="#475569"
+                placeholderTextColor={colors.subtext + "77"}
                 value={email}
                 onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
-                autoComplete="email"
               />
             </View>
           </View>
 
           {/* Password */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Password</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="lock-closed-outline" size={18} color="#94a3b8" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.subtext }]}>Password</Text>
+            <View style={[styles.inputWrapper, { backgroundColor: colors.inputBg, borderColor: colors.border }]}>
+              <Ionicons name="lock-closed-outline" size={18} color={colors.subtext} style={styles.inputIcon} />
               <TextInput
-                style={[styles.input, { flex: 1 }]}
+                style={[styles.input, { color: colors.text }]}
                 placeholder="Enter your password"
-                placeholderTextColor="#475569"
+                placeholderTextColor={colors.subtext + "77"}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
               />
               <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeBtn}>
-                <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={18} color="#94a3b8" />
+                <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={18} color={colors.subtext} />
               </TouchableOpacity>
             </View>
           </View>
@@ -127,21 +144,12 @@ export default function LoginScreen() {
 
           {/* Divider */}
           <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>OR</Text>
-            <View style={styles.dividerLine} />
+            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            <Text style={[styles.dividerText, { color: colors.subtext }]}>OR</Text>
+            <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
           </View>
 
-          {/* Signup Link */}
-          {/* <TouchableOpacity
-            style={styles.signupBtn}
-            onPress={() => router.push("/signup")}
-            activeOpacity={0.85}
-          >
-            {/* <Text style={styles.signupBtnText}>Create New Account</Text> */}
-          {/* </TouchableOpacity>  */}
-
-          <Text style={styles.footerNote}>
+          <Text style={[styles.footerNote, { color: colors.subtext }]}>
             Don't have an account yet?{" "}
             <Text style={styles.footerLink} onPress={() => router.push("/signup")}>
               Sign Up
@@ -152,8 +160,8 @@ export default function LoginScreen() {
         {/* Role Info */}
         <View style={styles.roleInfo}>
           <View style={styles.roleTag}>
-            <Ionicons name="person-outline" size={14} color="#6366f1" />
-            <Text style={styles.roleTagText}>Employee → Employee Dashboard</Text>
+            <Ionicons name="person-outline" size={14} color={colors.accent} />
+            <Text style={[styles.roleTagText, { color: colors.accent }]}>Employee → Employee Dashboard</Text>
           </View>
           <View style={styles.roleTag}>
             <Ionicons name="shield-checkmark-outline" size={14} color="#10b981" />
@@ -166,85 +174,31 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#0f172a" },
-  scrollContent: { flexGrow: 1, justifyContent: "center", padding: 24 },
-
+  container: { flex: 1 },
+  scrollContent: { flexGrow: 1, justifyContent: "center", padding: 24, paddingTop: 60 },
+  themeToggle: { position: 'absolute', top: 24, right: 24, padding: 10, borderRadius: 12, borderWidth: 1, zIndex: 10 },
   header: { alignItems: "center", marginBottom: 32 },
-  logoCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "#1e1b4b",
-    borderWidth: 2,
-    borderColor: "#6366f1",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  appName: { fontSize: 32, fontWeight: "800", color: "#f1f5f9", letterSpacing: 1 },
-  tagline: { fontSize: 13, color: "#64748b", marginTop: 4 },
-
-  card: {
-    backgroundColor: "#1e293b",
-    borderRadius: 20,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: "#334155",
-  },
-  cardTitle: { fontSize: 22, fontWeight: "700", color: "#f1f5f9", marginBottom: 4 },
-  cardSubtitle: { fontSize: 13, color: "#64748b", marginBottom: 24 },
-
-  inputGroup: { marginBottom: 16 },
-  label: { fontSize: 13, color: "#94a3b8", marginBottom: 6, fontWeight: "500" },
-  inputWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#0f172a",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#334155",
-    paddingHorizontal: 12,
-    height: 50,
-  },
-  inputIcon: { marginRight: 8 },
-  input: { flex: 1, color: "#f1f5f9", fontSize: 15 },
-  eyeBtn: { padding: 4 },
-
-  loginBtn: {
-    backgroundColor: "#6366f1",
-    borderRadius: 12,
-    height: 52,
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 8,
-    shadowColor: "#6366f1",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 6,
-  },
+  logoCircle: { width: 80, height: 80, borderRadius: 40, borderWidth: 2, justifyContent: "center", alignItems: "center", marginBottom: 12 },
+  appName: { fontSize: 32, fontWeight: "800", letterSpacing: 1 },
+  tagline: { fontSize: 13, marginTop: 4, fontWeight: '500' },
+  card: { borderRadius: 24, padding: 24, borderWidth: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.1, shadowRadius: 20, elevation: 12 },
+  cardTitle: { fontSize: 24, fontWeight: "800", marginBottom: 6 },
+  cardSubtitle: { fontSize: 14, marginBottom: 24, fontWeight: '500' },
+  inputGroup: { marginBottom: 20 },
+  label: { fontSize: 13, marginBottom: 8, fontWeight: "600" },
+  inputWrapper: { flexDirection: "row", alignItems: "center", borderRadius: 16, borderWidth: 1, paddingHorizontal: 16, height: 56 },
+  inputIcon: { marginRight: 12 },
+  input: { flex: 1, fontSize: 15, fontWeight: '500' },
+  eyeBtn: { padding: 8 },
+  loginBtn: { backgroundColor: "#6366f1", borderRadius: 16, height: 56, justifyContent: "center", alignItems: "center", marginTop: 8, shadowColor: "#6366f1", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 15, elevation: 8 },
   loginBtnDisabled: { opacity: 0.6 },
-  loginBtnText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-
-  divider: { flexDirection: "row", alignItems: "center", marginVertical: 20 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: "#334155" },
-  dividerText: { marginHorizontal: 12, color: "#475569", fontSize: 12 },
-
-  signupBtn: {
-    backgroundColor: "transparent",
-    borderRadius: 12,
-    height: 52,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1.5,
-    borderColor: "#6366f1",
-  },
-  signupBtnText: { color: "#6366f1", fontSize: 15, fontWeight: "700" },
-
-  footerNote: { textAlign: "center", color: "#475569", fontSize: 13, marginTop: 16 },
-  footerLink: { color: "#6366f1", fontWeight: "600" },
-
-  roleInfo: { marginTop: 24, gap: 10, alignItems: "center" },
-  roleTag: { flexDirection: "row", alignItems: "center", gap: 6 },
-  roleTagText: { fontSize: 12, color: "#6366f1" },
+  loginBtnText: { color: "#fff", fontSize: 16, fontWeight: "800", letterSpacing: 0.5 },
+  divider: { flexDirection: "row", alignItems: "center", marginVertical: 24 },
+  dividerLine: { flex: 1, height: 1 },
+  dividerText: { marginHorizontal: 16, fontSize: 12, fontWeight: '800' },
+  footerNote: { textAlign: "center", fontSize: 14, marginTop: 16, fontWeight: '500' },
+  footerLink: { color: "#6366f1", fontWeight: "700" },
+  roleInfo: { marginTop: 32, gap: 12, alignItems: "center" },
+  roleTag: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: 'rgba(99, 102, 241, 0.05)', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20 },
+  roleTagText: { fontSize: 12, fontWeight: '700' },
 });

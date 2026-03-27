@@ -18,15 +18,18 @@ import {
   Dimensions,
   Vibration,
   StatusBar,
+  Linking,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons, FontAwesome5, Feather } from "@expo/vector-icons";
 import { useAuth, api } from "@/context/AuthContext";
+import { SOCKET_URL } from "@/config/api";
 import Toast from "react-native-toast-message";
 import { LineChart, BarChart, PieChart } from "react-native-chart-kit";
 import * as Haptics from "expo-haptics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
+import * as WebBrowser from 'expo-web-browser';
 import DateTimePicker from "@react-native-community/datetimepicker";
 
 interface Employee {
@@ -87,14 +90,14 @@ interface FilterOptions {
   searchQuery: string;
 }
 
-export default function AdminDashboard() {
-  const { user, logout, token, socket, changePassword } = useAuth();
+export default function AdminDashboard({ initialView = "today" }: { initialView?: "tickets" | "employees" | "analytics" | "today" }) {
+  const { user, logout, token, socket, changePassword, isDarkMode, toggleTheme } = useAuth();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [filteredTickets, setFilteredTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [view, setView] = useState<"tickets" | "employees">("tickets");
+  const [view, setView] = useState<"tickets" | "employees" | "analytics" | "today">(initialView);
 
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [updating, setUpdating] = useState(false);
@@ -114,7 +117,7 @@ export default function AdminDashboard() {
     categoryBreakdown: {},
     priorityBreakdown: {},
   });
-  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(initialView === "analytics");
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<FilterOptions>({
     status: null,
@@ -131,9 +134,6 @@ export default function AdminDashboard() {
   const [showDatePicker, setShowDatePicker] = useState<"start" | "end" | null>(null);
   const [exporting, setExporting] = useState(false);
   const [showEmployeeDetails, setShowEmployeeDetails] = useState<Employee | null>(null);
-  const [darkMode, setDarkMode] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(true);
-  const [refreshInterval, setRefreshInterval] = useState<NodeJS.Timeout | null>(null);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passForm, setPassForm] = useState({ current: "", new: "", confirm: "" });
@@ -145,7 +145,6 @@ export default function AdminDashboard() {
   useEffect(() => {
     fetchData();
     loadNotifications();
-    loadSettings();
     startAutoRefresh();
 
     return () => {
@@ -153,26 +152,12 @@ export default function AdminDashboard() {
     };
   }, [token]);
 
-  const loadSettings = async () => {
-    try {
-      const savedDarkMode = await AsyncStorage.getItem("darkMode");
-      if (savedDarkMode !== null) setDarkMode(JSON.parse(savedDarkMode));
+  useEffect(() => {
+    setView(initialView);
+  }, [initialView]);
 
-      const savedAutoRefresh = await AsyncStorage.getItem("autoRefresh");
-      if (savedAutoRefresh !== null) setAutoRefresh(JSON.parse(savedAutoRefresh));
-    } catch (e) {
-      console.log("Error loading settings:", e);
-    }
-  };
-
-  const saveSettings = async () => {
-    try {
-      await AsyncStorage.setItem("darkMode", JSON.stringify(darkMode));
-      await AsyncStorage.setItem("autoRefresh", JSON.stringify(autoRefresh));
-    } catch (e) {
-      console.log("Error saving settings:", e);
-    }
-  };
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [refreshInterval, setRefreshInterval] = useState<any>(null);
 
   const startAutoRefresh = () => {
     if (refreshInterval) clearInterval(refreshInterval);
@@ -180,7 +165,7 @@ export default function AdminDashboard() {
       const interval = setInterval(() => {
         fetchDataSilently();
       }, 30000); // Refresh every 30 seconds
-      setRefreshInterval(interval);
+      setRefreshInterval(interval as any);
     }
   };
 
@@ -229,11 +214,22 @@ export default function AdminDashboard() {
       priorityBreak[t.priority] = (priorityBreak[t.priority] || 0) + 1;
     });
 
-    // Calculate average response time (mock calculation - would need actual response time data)
-    const avgResponseTime = Math.random() * 24; // Replace with actual calculation
+    // Calculate actual average response time for resolved tickets
+    let totalResponseTimeMs = 0;
+    let resolvedCount = 0;
 
-    // Calculate satisfaction rate (mock - would need actual feedback data)
-    const satisfactionRate = 85 + Math.random() * 10;
+    ticketData.forEach(t => {
+      if (t.status === 'closed' && t.updatedAt && t.createdAt) {
+        const diff = new Date(t.updatedAt).getTime() - new Date(t.createdAt).getTime();
+        totalResponseTimeMs += diff;
+        resolvedCount++;
+      }
+    });
+
+    const avgResponseTime = resolvedCount > 0 ? (totalResponseTimeMs / (1000 * 60 * 60)) / resolvedCount : 0;
+
+    // Calculate actual resolution efficiency rate
+    const satisfactionRate = ticketData.length > 0 ? (closed / ticketData.length) * 100 : 0;
 
     setAnalytics({
       totalTickets: ticketData.length,
@@ -302,6 +298,13 @@ export default function AdminDashboard() {
       }
     });
 
+    // Apply "Today" filter if view is "today"
+    if (view === "today") {
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      filtered = filtered.filter(t => new Date(t.createdAt) >= startOfToday);
+    }
+
     setFilteredTickets(filtered);
 
     // Extract unique categories
@@ -311,8 +314,11 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     applyFilters(tickets);
-    calculateAnalytics(tickets);
-  }, [tickets, filters, sortBy, sortOrder]);
+  }, [tickets, filters, sortBy, sortOrder, view]);
+
+  useEffect(() => {
+    calculateAnalytics(filteredTickets);
+  }, [filteredTickets]);
 
   useEffect(() => {
     if (socket) {
@@ -509,7 +515,7 @@ export default function AdminDashboard() {
 
       const jsonString = JSON.stringify(exportData, null, 2);
       const fileName = `ticket_export_${Date.now()}.json`;
-      const filePath = `${FileSystem.documentDirectory}${fileName}`;
+      const filePath = `${FileSystem.cacheDirectory}${fileName}`;
 
       await FileSystem.writeAsStringAsync(filePath, jsonString);
 
@@ -644,55 +650,39 @@ export default function AdminDashboard() {
   }));
 
   return (
-    <View style={[styles.container, { backgroundColor: darkMode ? "#0f172a" : "#f1f3f4" }]}>
-      <StatusBar barStyle={darkMode ? "light-content" : "dark-content"} />
+    <View style={[styles.container, { backgroundColor: isDarkMode ? "#0f172a" : "#f1f3f4" }]}>
+      <StatusBar barStyle={isDarkMode ? "light-content" : "dark-content"} />
 
       {/* Google-Style Header & Search */}
-      <View style={[styles.googleHeader, { backgroundColor: darkMode ? "#1e293b" : "#fff" }]}>
-        <View style={styles.searchContainer}>
-          <Ionicons name="search-outline" size={22} color="#5f6368" />
+      <View style={[styles.googleHeader, { backgroundColor: isDarkMode ? "#1e293b" : "#fff", borderBottomColor: isDarkMode ? "#334155" : "#dadce0" }]}>
+        <View style={[styles.searchContainer, { backgroundColor: isDarkMode ? "#334155" : "#f1f3f4" }]}>
+          <Ionicons name="search-outline" size={20} color={isDarkMode ? "#94a3b8" : "#5f6368"} />
           <TextInput
             placeholder="Search queries, team..."
-            placeholderTextColor="#70757a"
-            style={[styles.searchInput, { color: darkMode ? "#fff" : "#202124" }]}
+            placeholderTextColor={isDarkMode ? "#94a3b8" : "#70757a"}
+            style={[styles.searchInput, { color: isDarkMode ? "#fff" : "#202124", paddingLeft: 10 }]}
             value={filters.searchQuery}
             onChangeText={(text) => setFilters({ ...filters, searchQuery: text })}
           />
-          <TouchableOpacity onPress={() => setShowNotifications(!showNotifications)}>
-            <Ionicons name="notifications-outline" size={22} color="#5f6368" />
-            {notifications.some(n => !n.read) && <View style={styles.googleNotifBadge} />}
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => setShowProfileMenu(true)} style={{ marginLeft: 15 }}>
-            <View style={styles.userAvatar}>
-              <Text style={styles.avatarText}>{user?.name?.charAt(0)}</Text>
-            </View>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+            <TouchableOpacity onPress={() => setShowNotifications(!showNotifications)}>
+              <Ionicons name="notifications-outline" size={22} color={isDarkMode ? "#94a3b8" : "#5f6368"} />
+              {notifications.some(n => !n.read) && <View style={styles.googleNotifBadge} />}
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={toggleTheme}
+            >
+              <Ionicons name={isDarkMode ? "sunny-outline" : "moon-outline"} size={22} color={isDarkMode ? "#818cf8" : "#5f6368"} />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowProfileMenu(true)}>
+              <View style={styles.userAvatar}>
+                <Text style={styles.avatarText}>{user?.name?.charAt(0)}</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        {/* View Selection Tabs */}
-        <View style={styles.mdTabs}>
-          <TouchableOpacity
-            onPress={() => setView("tickets")}
-            style={[styles.mdTab, view === "tickets" && styles.mdTabActive]}
-          >
-            <Ionicons name="ticket-outline" size={20} color={view === "tickets" ? "#1a73e8" : "#5f6368"} />
-            <Text style={[styles.mdTabText, view === "tickets" && styles.mdTabTextActive]}>Tickets</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setView("employees")}
-            style={[styles.mdTab, view === "employees" && styles.mdTabActive]}
-          >
-            <Ionicons name="people-outline" size={20} color={view === "employees" ? "#1a73e8" : "#5f6368"} />
-            <Text style={[styles.mdTabText, view === "employees" && styles.mdTabTextActive]}>Team</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setShowAnalytics(!showAnalytics)}
-            style={[styles.mdTab, showAnalytics && styles.mdTabActive]}
-          >
-            <Ionicons name="stats-chart-outline" size={20} color={showAnalytics ? "#1a73e8" : "#5f6368"} />
-            <Text style={[styles.mdTabText, showAnalytics && styles.mdTabTextActive]}>Stats</Text>
-          </TouchableOpacity>
-        </View>
+        {/* View Selection Tabs Removed - Moved to Bottom Nav */}
       </View>
 
       <ScrollView
@@ -706,26 +696,185 @@ export default function AdminDashboard() {
         )}
         scrollEventThrottle={16}
       >
+        <View style={{ paddingBottom: 16 }}>
+          {view === "today" && (
+            <View style={{ marginBottom: 12 }}>
+              <Text style={[styles.sectionTitle, isDarkMode && styles.darkText]}>Today's Queries</Text>
+              <Text style={[styles.statLabel, { fontSize: 13, marginBottom: 10 }]}>Critical task monitoring focus</Text>
+            </View>
+          )}
+
+          {(view === "today" || view === "tickets") && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.statusChipBar}
+              contentContainerStyle={{ paddingBottom: 10 }}
+            >
+              {[
+                { label: "All", value: null },
+                { label: "Open", value: "open" },
+                { label: "InProgress", value: "inprogress" },
+                { label: "Resolved", value: "closed" },
+                { label: "Rejected", value: "rejected" }
+              ].map((s, idx) => {
+                // Calculate count based on current view (Today vs All)
+                let contextualCount = 0;
+                let contextTickets = [...tickets];
+
+                if (view === "today") {
+                  const startOfToday = new Date();
+                  startOfToday.setHours(0, 0, 0, 0);
+                  contextTickets = contextTickets.filter(t => new Date(t.createdAt) >= startOfToday);
+                }
+
+                if (s.value === null) {
+                  contextualCount = contextTickets.length;
+                } else {
+                  contextualCount = contextTickets.filter(t => t.status === s.value).length;
+                }
+
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[
+                      styles.statusChip,
+                      filters.status === s.value && styles.activeStatusChip,
+                      filters.status === s.value && isDarkMode && { backgroundColor: 'rgba(26, 115, 232, 0.2)' },
+                      { borderColor: filters.status === s.value ? "#1a73e8" : (isDarkMode ? "#334155" : "#dadce0") }
+                    ]}
+                    onPress={() => setFilters({ ...filters, status: s.value })}
+                  >
+                    {s.value && <View style={[styles.statusDot, { backgroundColor: getStatusColor(s.value) }]} />}
+                    <Text style={[
+                      styles.statusChipText,
+                      filters.status === s.value && { color: "#1a73e8", fontWeight: "bold" },
+                      { color: filters.status === s.value ? "#1a73e8" : (isDarkMode ? "#94a3b8" : "#5f6368") }
+                    ]}>
+                      {s.label}
+                    </Text>
+                    <View style={[styles.countBadge, { backgroundColor: isDarkMode ? "#0f172a" : "#f1f3f4" }]}>
+                      <Text style={[styles.countText, isDarkMode && styles.darkText]}>{contextualCount}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          )}
+
+          {/* Row 2: Categories */}
+          {(view === "today" || view === "tickets") && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={[styles.statusChipBar, { marginTop: -4 }]}
+              contentContainerStyle={{ paddingBottom: 10 }}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.categoryChip,
+                  filters.category === null && styles.activeStatusChip,
+                  filters.category === null && isDarkMode && { backgroundColor: 'rgba(26, 115, 232, 0.2)' },
+                  { borderColor: filters.category === null ? "#1a73e8" : (isDarkMode ? "#334155" : "#dadce0") }
+                ]}
+                onPress={() => setFilters({ ...filters, category: null })}
+              >
+                <Text style={[styles.statusChipText, { color: filters.category === null ? "#1a73e8" : (isDarkMode ? "#94a3b8" : "#5f6368") }]}>All Topics</Text>
+              </TouchableOpacity>
+              {categories.map((cat, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={[
+                    styles.categoryChip,
+                    filters.category === cat && styles.activeStatusChip,
+                    filters.category === cat && isDarkMode && { backgroundColor: 'rgba(26, 115, 232, 0.2)' },
+                    { borderColor: filters.category === cat ? "#1a73e8" : (isDarkMode ? "#334155" : "#dadce0") }
+                  ]}
+                  onPress={() => setFilters({ ...filters, category: cat })}
+                >
+                  <Text style={[styles.statusChipText, { color: filters.category === cat ? "#1a73e8" : (isDarkMode ? "#94a3b8" : "#5f6368") }]}>
+                    {cat.charAt(0).toUpperCase() + cat.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+
+          {/* Row 3: Priority */}
+          {(view === "today" || view === "tickets") && (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={[styles.statusChipBar, { marginTop: -4 }]}
+              contentContainerStyle={{ paddingBottom: 10 }}
+            >
+              <TouchableOpacity
+                style={[
+                  styles.categoryChip,
+                  filters.priority === null && styles.activeStatusChip,
+                  filters.priority === null && isDarkMode && { backgroundColor: 'rgba(239, 68, 68, 0.1)' },
+                  { borderColor: filters.priority === null ? "#1a73e8" : (isDarkMode ? "#334155" : "#dadce0") }
+                ]}
+                onPress={() => setFilters({ ...filters, priority: null })}
+              >
+                <Text style={[styles.statusChipText, { color: filters.priority === null ? "#1a73e8" : (isDarkMode ? "#94a3b8" : "#5f6368") }]}>Any Priority</Text>
+              </TouchableOpacity>
+              {[
+                { label: 'High', value: 'high', color: '#ef4444' },
+                { label: 'Medium', value: 'medium', color: '#f59e0b' },
+                { label: 'Low', value: 'low', color: '#10b981' }
+              ].map((p, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={[
+                    styles.categoryChip,
+                    filters.priority === p.value && styles.activeStatusChip,
+                    filters.priority === p.value && isDarkMode && { backgroundColor: p.color + '22' },
+                    { borderColor: filters.priority === p.value ? p.color : (isDarkMode ? "#334155" : "#dadce0") }
+                  ]}
+                  onPress={() => setFilters({ ...filters, priority: p.value })}
+                >
+                  <View style={[styles.statusDot, { backgroundColor: p.color }]} />
+                  <Text style={[styles.statusChipText, { color: filters.priority === p.value ? p.color : (isDarkMode ? "#94a3b8" : "#5f6368") }]}>
+                    {p.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
         {/* Analytics Section */}
         {showAnalytics && (
-          <View style={[styles.analyticsContainer, darkMode && styles.darkCard]}>
+          <View style={[styles.analyticsContainer, isDarkMode && styles.darkCard]}>
             <View style={styles.statsGrid}>
-              <View style={styles.statCard}>
+              <TouchableOpacity
+                style={styles.statCard}
+                onPress={() => { setView("tickets"); setFilters({ ...filters, status: null }); }}
+              >
                 <Text style={styles.statValue}>{analytics.totalTickets}</Text>
                 <Text style={styles.statLabel}>Total</Text>
-              </View>
-              <View style={styles.statCard}>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.statCard}
+                onPress={() => { setView("tickets"); setFilters({ ...filters, status: "open" }); }}
+              >
                 <Text style={[styles.statValue, { color: "#f9ab00" }]}>{analytics.openTickets}</Text>
                 <Text style={styles.statLabel}>Open</Text>
-              </View>
-              <View style={styles.statCard}>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.statCard}
+                onPress={() => { setView("tickets"); setFilters({ ...filters, status: "inprogress" }); }}
+              >
                 <Text style={[styles.statValue, { color: "#1a73e8" }]}>{analytics.inProgressTickets}</Text>
                 <Text style={styles.statLabel}>Active</Text>
-              </View>
-              <View style={styles.statCard}>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.statCard}
+                onPress={() => { setView("tickets"); setFilters({ ...filters, status: "closed" }); }}
+              >
                 <Text style={[styles.statValue, { color: "#1e8e3e" }]}>{analytics.closedTickets}</Text>
                 <Text style={styles.statLabel}>Resolved</Text>
-              </View>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.chartArea}>
@@ -777,7 +926,7 @@ export default function AdminDashboard() {
         {/* List Content */}
         {loading ? (
           <ActivityIndicator size="large" color="#1a73e8" style={styles.loader} />
-        ) : view === "tickets" ? (
+        ) : (view === "tickets" || view === "today") ? (
           filteredTickets.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="mail-outline" size={60} color="#dadce0" />
@@ -788,35 +937,53 @@ export default function AdminDashboard() {
               <TouchableOpacity
                 key={t._id}
                 style={[
-                  styles.ticketCard, 
-                  darkMode && styles.darkCard,
+                  styles.ticketCard,
+                  isDarkMode && styles.darkCard,
                   { borderLeftColor: getStatusColor(t.status) },
                   selectedTickets.includes(t._id) && styles.selectedTicket
                 ]}
-                onPress={() => bulkActionMode ? 
-                  setSelectedTickets(prev => prev.includes(t._id) ? prev.filter(id => id !== t._id) : [...prev, t._id]) : 
+                onPress={() => bulkActionMode ?
+                  setSelectedTickets(prev => prev.includes(t._id) ? prev.filter(id => id !== t._id) : [...prev, t._id]) :
                   setSelectedTicket(t)
                 }
               >
-                <View style={styles.ticketHeader}>
+                <View style={[styles.ticketHeader, { marginBottom: 12 }]}>
                   <View style={styles.ticketInfo}>
-                    <Text style={[styles.ticketTitle, darkMode && styles.darkText]}>{t.title}</Text>
-                    <View style={styles.ticketMeta}>
-                      <Text style={[styles.ticketPriority, { color: getPriorityColor(t.priority) }]}>{t.priority}</Text>
-                      <Text style={styles.ticketCategory}>• {t.category}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <MaterialCommunityIcons name="account-circle-outline" size={16} color={isDarkMode ? "#818cf8" : "#4f46e5"} />
+                      <Text style={[styles.ticketFrom, { color: isDarkMode ? "#818cf8" : "#4f46e5", fontWeight: 'bold', fontSize: 13 }]}>
+                        Ticket from {t.user.name}
+                      </Text>
+                    </View>
+                    <Text style={[styles.ticketTitle, isDarkMode && styles.darkText, { marginTop: 4, fontSize: 17 }]}>{t.title}</Text>
+                    <View style={[styles.ticketMeta, { marginTop: 6 }]}>
+                      <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(t.priority) + '15' }]}>
+                        <Text style={[styles.ticketPriority, { color: getPriorityColor(t.priority), fontSize: 10 }]}>{t.priority.toUpperCase()}</Text>
+                      </View>
+                      <Text style={[styles.ticketCategory, isDarkMode && styles.darkMutedText]}>• {t.category}</Text>
+                      {t.attachments && t.attachments.length > 0 && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8 }}>
+                          <Ionicons name="attach" size={14} color={isDarkMode ? "#94a3b8" : "#64748b"} />
+                          <Text style={{ fontSize: 11, color: isDarkMode ? "#94a3b8" : "#64748b" }}>{t.attachments.length}</Text>
+                        </View>
+                      )}
                     </View>
                   </View>
                   <TouchableOpacity onPress={() => shareTicket(t)}>
-                    <Ionicons name="share-social-outline" size={20} color="#5f6368" />
+                    <Ionicons name="share-social-outline" size={20} color={isDarkMode ? "#94a3b8" : "#5f6368"} />
                   </TouchableOpacity>
                 </View>
-                <Text style={[styles.ticketDesc, darkMode && styles.darkMutedText]} numberOfLines={2}>{t.description}</Text>
+                <Text style={[styles.ticketDesc, isDarkMode && styles.darkMutedText]} numberOfLines={2}>{t.description}</Text>
                 <View style={styles.ticketFooter}>
-                  <Text style={styles.ticketUser}>{t.user.name}</Text>
-                  <Text style={styles.ticketDate}>{new Date(t.createdAt).toLocaleDateString()}</Text>
-                  <Text style={[styles.ticketStatus, { backgroundColor: getStatusColor(t.status) + '20', color: getStatusColor(t.status) }]}>
-                    {t.status.toUpperCase()}
-                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Ionicons name="time-outline" size={12} color="#5f6368" />
+                    <Text style={styles.ticketDate}>{new Date(t.createdAt).toLocaleDateString()}</Text>
+                  </View>
+                  <View style={[styles.statusBadgeFull, { backgroundColor: getStatusColor(t.status) + '15' }]}>
+                    <Text style={[styles.ticketStatusText, { color: getStatusColor(t.status) }]}>
+                      {t.status.toUpperCase()}
+                    </Text>
+                  </View>
                 </View>
               </TouchableOpacity>
             ))
@@ -825,14 +992,14 @@ export default function AdminDashboard() {
           employees.map((emp) => (
             <TouchableOpacity
               key={emp._id}
-              style={[styles.employeeCard, darkMode && styles.darkCard]}
+              style={[styles.employeeCard, isDarkMode && styles.darkCard]}
               onPress={() => setShowEmployeeDetails(emp)}
             >
               <View style={styles.employeeAvatar}>
                 <Text style={styles.avatarText}>{emp.name.charAt(0)}</Text>
               </View>
               <View style={styles.employeeInfo}>
-                <Text style={[styles.employeeName, darkMode && styles.darkText]}>{emp.name}</Text>
+                <Text style={[styles.employeeName, isDarkMode && styles.darkText]}>{emp.name}</Text>
                 <Text style={styles.employeeEmail}>{emp.email}</Text>
               </View>
               <View style={styles.employeeBadge}>
@@ -843,38 +1010,51 @@ export default function AdminDashboard() {
         )}
       </ScrollView>
 
-      {/* Floating Action Button for Export */}
-      <TouchableOpacity 
-        style={styles.exportFAB} 
-        onPress={exportData}
-        disabled={exporting}
-      >
-        {exporting ? <ActivityIndicator color="#fff" /> : <Feather name="download" size={24} color="#fff" />}
-      </TouchableOpacity>
 
       {/* Ticket Modal */}
       <Modal visible={!!selectedTicket} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, darkMode && styles.darkCard]}>
+          <View style={[styles.modalContent, isDarkMode && styles.darkCard]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, darkMode && styles.darkText]}>{selectedTicket?.title}</Text>
+              <Text style={[styles.modalTitle, isDarkMode && styles.darkText]}>{selectedTicket?.title}</Text>
               <TouchableOpacity onPress={() => setSelectedTicket(null)}>
-                <Ionicons name="close" size={28} color={darkMode ? "#fff" : "#202124"} />
+                <Ionicons name="close" size={28} color={isDarkMode ? "#fff" : "#202124"} />
               </TouchableOpacity>
             </View>
             <ScrollView showsVerticalScrollIndicator={false}>
               <View style={styles.modalInfo}>
                 <Text style={styles.modalLabel}>REQUESTED BY</Text>
-                <Text style={[styles.modalValue, darkMode && styles.darkText]}>{selectedTicket?.user.name} ({selectedTicket?.user.email})</Text>
+                <Text style={[styles.modalValue, isDarkMode && styles.darkText]}>{selectedTicket?.user.name} ({selectedTicket?.user.email})</Text>
               </View>
               <View style={styles.modalInfo}>
                 <Text style={styles.modalLabel}>DESCRIPTION</Text>
-                <Text style={[styles.modalValue, darkMode && styles.darkText]}>{selectedTicket?.description}</Text>
+                <Text style={[styles.modalValue, isDarkMode && styles.darkText]}>{selectedTicket?.description}</Text>
               </View>
+
+              {selectedTicket?.attachments && selectedTicket.attachments.length > 0 && (
+                <View style={styles.modalInfo}>
+                  <Text style={styles.modalLabel}>ATTACHMENTS ({selectedTicket.attachments.length})</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                    {selectedTicket.attachments.map((file, idx) => (
+                      <TouchableOpacity
+                        key={idx}
+                        style={[styles.attachmentChip, { backgroundColor: isDarkMode ? "#1e293b" : "#f1f3f4", borderColor: isDarkMode ? "#334155" : "#dadce0" }]}
+                        onPress={() => {
+                          const url = file.startsWith('http') ? file : `${SOCKET_URL}/${file.replace(/^\/+/, '')}`;
+                          WebBrowser.openBrowserAsync(url).catch(() => Alert.alert("Error", "Could not open file"));
+                        }}
+                      >
+                        <Ionicons name="document-attach-outline" size={16} color="#1a73e8" />
+                        <Text style={[styles.attachmentText, { color: isDarkMode ? "#f1f5f9" : "#202124" }]} numberOfLines={1}>File {idx + 1}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
               <TextInput
                 placeholder="Type internal reply or resolution..."
                 placeholderTextColor="#999"
-                style={[styles.input, darkMode && styles.darkInput]}
+                style={[styles.input, isDarkMode && styles.darkInput]}
                 value={replyText}
                 onChangeText={setReplyText}
                 multiline
@@ -899,10 +1079,32 @@ export default function AdminDashboard() {
         <View style={styles.notifPanel}>
           <Text style={styles.panelTitle}>Updates</Text>
           <ScrollView>
-            {notifications.map(n => (
-              <TouchableOpacity key={n.id} style={[styles.notifItem, !n.read && styles.unreadNotif]}>
-                <Text style={styles.notifText}>{n.message}</Text>
-                <Text style={styles.notifTime}>{new Date(n.timestamp).toLocaleTimeString()}</Text>
+            {notifications.map((notif) => (
+              <TouchableOpacity
+                key={notif.id}
+                style={[
+                  styles.notifItem,
+                  !notif.read && styles.unreadNotif,
+                  !notif.read && isDarkMode && { backgroundColor: 'rgba(26, 115, 232, 0.15)' }
+                ]}
+                onPress={async () => {
+                  const updated = notifications.map(n => n.id === notif.id ? { ...n, read: true } : n);
+                  setNotifications(updated);
+                  await AsyncStorage.setItem("admin_notifications", JSON.stringify(updated));
+                  if (notif.ticketId) {
+                    const found = tickets.find(t => t._id === notif.ticketId);
+                    if (found) setSelectedTicket(found);
+                  }
+                  setShowNotifications(false);
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={[styles.notifDot, { backgroundColor: notif.read ? (isDarkMode ? "#334155" : "#dadce0") : "#1a73e8" }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.notifText, isDarkMode && styles.darkText, !notif.read && { fontWeight: '700' }]}>{notif.title}</Text>
+                    <Text style={[styles.notifTime, isDarkMode && styles.darkMutedText]}>{new Date(notif.timestamp).toLocaleTimeString()}</Text>
+                  </View>
+                </View>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -913,35 +1115,35 @@ export default function AdminDashboard() {
 
       {/* Profile Menu Dropdown Overlay */}
       <Modal visible={showProfileMenu} transparent animationType="fade">
-        <TouchableOpacity 
-          style={styles.menuOverlay} 
-          activeOpacity={1} 
+        <TouchableOpacity
+          style={styles.menuOverlay}
+          activeOpacity={1}
           onPress={() => setShowProfileMenu(false)}
         >
-          <View style={[styles.profileMenu, darkMode && styles.darkCard]}>
+          <View style={[styles.profileMenu, isDarkMode && styles.darkCard]}>
             <View style={styles.menuHeader}>
               <View style={styles.largeAvatar}>
                 <Text style={styles.largeAvatarText}>{user?.name?.charAt(0).toUpperCase()}</Text>
               </View>
               <View>
-                <Text style={[styles.menuName, darkMode && styles.darkText]}>Hi, {user?.name}</Text>
+                <Text style={[styles.menuName, isDarkMode && styles.darkText]}>Hi, {user?.name}</Text>
                 <Text style={styles.menuEmail}>{user?.email}</Text>
               </View>
             </View>
 
-            <TouchableOpacity 
-              style={styles.menuItem} 
+            <TouchableOpacity
+              style={styles.menuItem}
               onPress={() => {
                 setShowProfileMenu(false);
                 setShowPasswordModal(true);
               }}
             >
               <Ionicons name="lock-closed-outline" size={20} color="#5f6368" />
-              <Text style={[styles.menuItemText, darkMode && styles.darkText]}>Change Password</Text>
+              <Text style={[styles.menuItemText, isDarkMode && styles.darkText]}>Change Password</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: '#f1f3f4' }]} 
+            <TouchableOpacity
+              style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: '#f1f3f4' }]}
               onPress={() => {
                 setShowProfileMenu(false);
                 logout();
@@ -957,45 +1159,45 @@ export default function AdminDashboard() {
       {/* Change Password Modal */}
       <Modal visible={showPasswordModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, darkMode && styles.darkCard, { height: 'auto', paddingBottom: 40 }]}>
+          <View style={[styles.modalContent, isDarkMode && styles.darkCard, { height: 'auto', paddingBottom: 40 }]}>
             <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, darkMode && styles.darkText]}>Change Password</Text>
+              <Text style={[styles.modalTitle, isDarkMode && styles.darkText]}>Change Password</Text>
               <TouchableOpacity onPress={() => setShowPasswordModal(false)}>
-                <Ionicons name="close" size={28} color={darkMode ? "#fff" : "#202124"} />
+                <Ionicons name="close" size={28} color={isDarkMode ? "#fff" : "#202124"} />
               </TouchableOpacity>
             </View>
-            
+
             <TextInput
               placeholder="Current Password"
               placeholderTextColor="#999"
               secureTextEntry
-              style={[styles.input, darkMode && styles.darkInput]}
+              style={[styles.input, isDarkMode && styles.darkInput]}
               value={passForm.current}
-              onChangeText={(t) => setPassForm({...passForm, current: t})}
+              onChangeText={(t) => setPassForm({ ...passForm, current: t })}
             />
             <TextInput
               placeholder="New Password"
               placeholderTextColor="#999"
               secureTextEntry
-              style={[styles.input, darkMode && styles.darkInput]}
+              style={[styles.input, isDarkMode && styles.darkInput]}
               value={passForm.new}
-              onChangeText={(t) => setPassForm({...passForm, new: t})}
+              onChangeText={(t) => setPassForm({ ...passForm, new: t })}
             />
             <TextInput
               placeholder="Confirm New Password"
               placeholderTextColor="#999"
               secureTextEntry
-              style={[styles.input, darkMode && styles.darkInput]}
+              style={[styles.input, isDarkMode && styles.darkInput]}
               value={passForm.confirm}
-              onChangeText={(t) => setPassForm({...passForm, confirm: t})}
+              onChangeText={(t) => setPassForm({ ...passForm, confirm: t })}
             />
 
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.statusButton, { backgroundColor: '#1a73e8', borderColor: '#1a73e8' }]}
               onPress={handleChangePassword}
               disabled={passLoading}
             >
-              {passLoading ? <ActivityIndicator color="#fff" /> : 
+              {passLoading ? <ActivityIndicator color="#fff" /> :
                 <Text style={{ color: '#fff', fontWeight: 'bold' }}>UPDATE PASSWORD</Text>
               }
             </TouchableOpacity>
@@ -1011,26 +1213,16 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   googleHeader: {
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: 0,
+    paddingBottom: 22,
     borderBottomWidth: 1,
-    borderBottomColor: '#dadce0',
+    paddingHorizontal: 16,
     elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.05,
     zIndex: 10,
   },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(241, 243, 244, 0.8)',
-    marginHorizontal: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: '#dfe1e5',
-  },
+  searchContainer: { flexDirection: 'row', alignItems: 'center', borderRadius: 28, paddingHorizontal: 16, height: 52, elevation: 0 },
   searchInput: {
     flex: 1,
     marginLeft: 10,
@@ -1098,16 +1290,23 @@ const styles = StyleSheet.create({
   googleNotifBadge: { width: 8, height: 8, backgroundColor: '#d93025', borderRadius: 4, position: 'absolute', top: 0, right: 0, borderWidth: 1, borderColor: '#fff' },
   notifPanel: { position: 'absolute', top: 110, right: 16, left: 16, backgroundColor: '#fff', borderRadius: 12, elevation: 10, padding: 16, borderWidth: 1, borderColor: '#dadce0' },
   panelTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 16 },
-  notifItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f1f3f4' },
+  notifItem: { padding: 16, borderBottomWidth: 1, borderBottomColor: '#f1f3f4' },
   unreadNotif: { backgroundColor: '#e8f0fe' },
+  notifDot: { width: 8, height: 8, borderRadius: 4 },
   notifText: { fontSize: 14, color: '#202124' },
   notifTime: { fontSize: 12, color: '#5f6368', marginTop: 4 },
-  
+
   // Missing Styles from Overhaul
-  darkCard: { backgroundColor: '#111' },
-  darkText: { color: '#fff' },
-  darkMutedText: { color: '#aaa' },
-  darkInput: { backgroundColor: '#222', color: '#fff' },
+  darkCard: { backgroundColor: '#1e293b', borderColor: '#334155', borderWidth: 1 },
+  darkText: { color: '#f1f5f9' },
+  darkMutedText: { color: '#94a3b8' },
+  darkInput: { backgroundColor: '#0f172a', color: '#f1f5f9' },
+  ticketFrom: { letterSpacing: 0.5 },
+  priorityBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 },
+  statusBadgeFull: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  ticketStatusText: { fontSize: 11, fontWeight: '800' },
+  attachmentChip: { flexDirection: 'row', alignItems: 'center', padding: 10, borderRadius: 12, borderWidth: 1, marginRight: 10, gap: 8 },
+  attachmentText: { fontSize: 12, fontWeight: '600' },
   metricsContainer: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 10 },
   metricItem: { alignItems: 'center' },
   metricValue: { color: '#10b981', fontSize: 18, fontWeight: 'bold' },
@@ -1152,7 +1351,7 @@ const styles = StyleSheet.create({
   detailRow: { flexDirection: 'row', marginBottom: 12, paddingHorizontal: 10 },
   detailLabel: { color: '#5f6368', width: 80, fontSize: 14 },
   detailValue: { fontSize: 14, flex: 1, color: '#202124' },
-  
+
   // Profile Menu Styles
   menuOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.1)', justifyContent: 'flex-start', alignItems: 'flex-end', paddingTop: 60, paddingRight: 20 },
   profileMenu: { backgroundColor: '#fff', borderRadius: 16, padding: 8, width: 220, elevation: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8 },
@@ -1163,4 +1362,13 @@ const styles = StyleSheet.create({
   menuEmail: { fontSize: 11, color: '#5f6368' },
   menuItem: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 12, borderRadius: 8 },
   menuItemText: { fontSize: 14, color: '#3c4043' },
+  statusChipBar: { marginBottom: 12 },
+  statusChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, borderWidth: 1, marginRight: 10, gap: 6 },
+  activeStatusChip: { backgroundColor: '#e8f0fe', borderColor: '#1a73e8' },
+  statusChipText: { fontSize: 13, fontWeight: '500' },
+  categoryChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 16, borderWidth: 1, marginRight: 8, gap: 6, backgroundColor: 'transparent' },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  contentContainer: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 100 },
+  countBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10, marginLeft: 4 },
+  countText: { fontSize: 10, color: '#5f6368', fontWeight: 'bold' },
 });

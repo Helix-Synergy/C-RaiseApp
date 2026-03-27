@@ -10,7 +10,7 @@ const AdminDashboard = ({ route }) => {
   useEffect(() => {
     const fetchEmployees = async () => {
       try {
-        const res = await axios.get(`http://localhost:5000/api/users?companyId=${companyId}`);
+        const res = await axios.get(`https://c-raise-backend.onrender.com/api/users?companyId=${companyId}`);
         setEmployees(res.data);
       } catch (error) {
         console.log(error);

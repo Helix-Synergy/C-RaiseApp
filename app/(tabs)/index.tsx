@@ -16,7 +16,12 @@ import {
   Vibration,
   Platform,
   FlatList,
+  StatusBar,
+  Linking,
 } from "react-native";
+import { useRouter } from "expo-router";
+import { SOCKET_URL } from "@/config/api";
+import * as WebBrowser from 'expo-web-browser';
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useAuth, api } from "@/context/AuthContext";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -56,8 +61,8 @@ interface Notification {
   ticketId?: string;
 }
 
-export default function EmployeeDashboard() {
-  const { user, logout, token, socket, changePassword } = useAuth();
+export default function EmployeeDashboard({ initialTab = "Tickets" }: { initialTab?: string }) {
+  const { user, logout, token, socket, changePassword, isDarkMode, toggleTheme } = useAuth();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -70,7 +75,6 @@ export default function EmployeeDashboard() {
   const fadeAnim = useState(new Animated.Value(0))[0];
   const [commentText, setCommentText] = useState("");
   const [activeTicketForComment, setActiveTicketForComment] = useState<string | null>(null);
-  const [isDarkMode, setIsDarkMode] = useState(true);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -89,6 +93,7 @@ export default function EmployeeDashboard() {
   const [passForm, setPassForm] = useState({ current: "", new: "", confirm: "" });
   const [passLoading, setPassLoading] = useState(false);
   const scaleAnim = useRef(new Animated.Value(0)).current;
+  const [activeTab, setActiveTab] = useState(initialTab);
 
   // Dynamic Colors
   const colors = {
@@ -374,7 +379,7 @@ export default function EmployeeDashboard() {
   const getAnalytics = () => {
     const now = new Date();
     now.setHours(23, 59, 59, 999); // End of today
-    
+
     let labels: string[] = [];
     let dataPoints: number[] = [];
 
@@ -396,7 +401,7 @@ export default function EmployeeDashboard() {
     } else if (analyticsPeriod === 'month') {
       dataPoints = Array(30).fill(0);
       labels = Array(30).fill("").map((_, i) => (i % 5 === 0 ? `${i + 1}` : ""));
-      
+
       tickets.forEach(t => {
         const tDate = new Date(t.createdAt);
         const diffDays = Math.floor((now.getTime() - tDate.getTime()) / (1000 * 3600 * 24));
@@ -407,7 +412,7 @@ export default function EmployeeDashboard() {
     } else {
       dataPoints = Array(12).fill(0);
       labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]; // Simplest for year
-      
+
       tickets.forEach(t => {
         const tDate = new Date(t.createdAt);
         const monthIndex = tDate.getMonth();
@@ -424,16 +429,17 @@ export default function EmployeeDashboard() {
     <View style={[styles.container, { backgroundColor: colors.bg }]}>
       <BlurView intensity={isDarkMode ? 80 : 40} style={styles.blurHeader}>
         <View style={styles.header}>
-          <View>
+          <View style={styles.headerLeft}>
             <Text style={[styles.greeting, { color: colors.subtext }]}>Welcome Back 👋</Text>
-            <Text style={[styles.userName, { color: colors.text }]}>{user?.name || "Member"}</Text>
+            <Text style={[styles.userName, { fontSize: 24, fontWeight: '800', color: colors.text }]}>{user?.name || "Member"}</Text>
           </View>
-          <View style={{ flexDirection: 'row', gap: 10 }}>
+          <View style={styles.headerRight}>
             <TouchableOpacity
               onPress={() => {
-                const nextVal = !showNotifications;
-                setShowNotifications(nextVal);
-                if (nextVal) markNotificationsAsRead();
+                setShowNotifications(!showNotifications);
+                if (!showNotifications) {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }
               }}
               style={[styles.iconBtn, { borderColor: colors.border }]}
             >
@@ -446,14 +452,14 @@ export default function EmployeeDashboard() {
                 </View>
               )}
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setIsDarkMode(!isDarkMode)} style={[styles.iconBtn, { borderColor: colors.border }]}>
+            <TouchableOpacity onPress={toggleTheme} style={[styles.iconBtn, { borderColor: colors.border }]}>
               <Ionicons name={isDarkMode ? "sunny-outline" : "moon-outline"} size={20} color={isDarkMode ? "#f59e0b" : "#6366f1"} />
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.profileIconBtn, { borderColor: colors.border, backgroundColor: colors.accent }]} 
+            <TouchableOpacity
+              style={[styles.profileIconBtn, { borderColor: colors.border, backgroundColor: '#7c3aed' }]}
               onPress={() => setShowProfileMenu(true)}
             >
-              <Text style={styles.profileInitialText}>{user?.name?.charAt(0).toUpperCase()}</Text>
+              <Text style={styles.profileInitialText}>{user?.name?.charAt(0).toUpperCase() || 'M'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -464,9 +470,14 @@ export default function EmployeeDashboard() {
         <Animated.View style={[styles.notificationsPanel, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.notificationsHeader}>
             <Text style={[styles.notificationsTitle, { color: colors.text }]}>Notifications</Text>
-            <TouchableOpacity onPress={() => setShowNotifications(false)}>
-              <Ionicons name="close" size={20} color={colors.subtext} />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <TouchableOpacity onPress={markNotificationsAsRead}>
+                <Text style={{ color: colors.accent, fontSize: 12, fontWeight: '600' }}>Mark all read</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setShowNotifications(false)}>
+                <Ionicons name="close" size={20} color={colors.subtext} />
+              </TouchableOpacity>
+            </View>
           </View>
           {notifications.length === 0 ? (
             <Text style={[styles.noNotifications, { color: colors.subtext }]}>No notifications</Text>
@@ -474,22 +485,29 @@ export default function EmployeeDashboard() {
             notifications.map(notif => (
               <TouchableOpacity
                 key={notif.id}
-                onPress={() => {
+                onPress={async () => {
+                  const updated = notifications.map(n => n.id === notif.id ? { ...n, read: true } : n);
+                  setNotifications(updated);
+                  await AsyncStorage.setItem('notifications', JSON.stringify(updated));
                   if (notif.ticketId) {
                     const found = tickets.find(t => t._id === notif.ticketId);
                     if (found) {
                       setSelectedTicket(found);
                       setDetailModalVisible(true);
-                      setShowNotifications(false);
-                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                     }
                   }
+                  setShowNotifications(false);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
                 }}
-                style={[styles.notificationItem, { backgroundColor: colors.bg }]}
+                style={[
+                  styles.notificationItem, 
+                  { backgroundColor: colors.bg },
+                  !notif.read && { backgroundColor: isDarkMode ? 'rgba(99, 102, 241, 0.1)' : 'rgba(99, 102, 241, 0.05)' }
+                ]}
               >
-                <View style={[styles.notificationDot, { backgroundColor: notif.read ? colors.subtext : colors.accent }]} />
+                <View style={[styles.notificationDot, { backgroundColor: notif.read ? (isDarkMode ? "#334155" : "#e2e8f0") : colors.accent }]} />
                 <View style={styles.notificationContent}>
-                  <Text style={[styles.notificationTitle, { color: colors.text }]}>{notif.title}</Text>
+                  <Text style={[styles.notificationTitle, { color: colors.text }, !notif.read && { fontWeight: '700' }]}>{notif.title}</Text>
                   <Text style={[styles.notificationMessage, { color: colors.subtext }]}>{notif.message}</Text>
                   <Text style={[styles.notificationTime, { color: colors.subtext }]}>
                     {new Date(notif.timestamp).toLocaleTimeString()}
@@ -507,26 +525,24 @@ export default function EmployeeDashboard() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.accent]} />
         }
       >
-        <View style={styles.rolePill}>
-          <MaterialCommunityIcons name="ticket-account" size={14} color="#6366f1" />
-          <Text style={styles.rolePillText}>Support Center • {tickets.length} Tickets</Text>
-        </View>
+        {/* Role Overview - Conditionally shown in Tickets */}
+        {activeTab === 'Tickets' && (
+          <View style={styles.rolePill}>
+            <MaterialCommunityIcons name="ticket-account" size={14} color="#6366f1" />
+            <Text style={styles.rolePillText}>Support Center • {tickets.length} Tickets</Text>
+          </View>
+        )}
 
-        {/* Enhanced Analytics Section */}
-        <View style={[styles.analyticsSection, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <TouchableOpacity
-            style={styles.analyticsHeader}
-            onPress={() => setShowAnalytics(!showAnalytics)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.analyticsTitleRow}>
-              <MaterialCommunityIcons name="chart-line" size={20} color={colors.accent} />
-              <Text style={[styles.analyticsTitle, { color: colors.text }]}>Analytics Dashboard</Text>
+        {/* Analytics Section - Filtered View */}
+        {activeTab === 'Activity Analytics' && (
+          <View style={[styles.analyticsSection, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.analyticsHeader}>
+              <View style={styles.analyticsTitleRow}>
+                <MaterialCommunityIcons name="chart-line" size={20} color={colors.accent} />
+                <Text style={[styles.analyticsTitle, { color: colors.text }]}>Analytics Dashboard</Text>
+              </View>
             </View>
-            <Ionicons name={showAnalytics ? "chevron-up" : "chevron-down"} size={20} color={colors.subtext} />
-          </TouchableOpacity>
 
-          {showAnalytics && (
             <Animated.View style={{ opacity: fadeAnim }}>
               <View style={styles.periodSelector}>
                 {(['week', 'month', 'year'] as const).map(period => (
@@ -576,276 +592,191 @@ export default function EmployeeDashboard() {
                   <Text style={[styles.kpiValue, { color: colors.accent }]}>2.4h</Text>
                   <Ionicons name="trending-down" size={16} color="#10b981" />
                 </View>
-                <TouchableOpacity
-                  onPress={() => setFilterStatus('open')}
-                  style={[styles.kpiCard, { backgroundColor: colors.bg }]}
-                >
-                  <Text style={[styles.kpiLabel, { color: colors.subtext }]}>Open Tickets</Text>
-                  <Text style={[styles.kpiValue, { color: colors.accent }]}>{stats.open}</Text>
-                  <Ionicons name="time-outline" size={16} color="#f59e0b" />
-                </TouchableOpacity>
               </View>
             </Animated.View>
-          )}
-        </View>
-
-        <Text style={[styles.sectionTitle, { color: colors.text }]}>Tickets & Inquiries</Text>
-
-        {/* Enhanced Search Section */}
-        <View style={[styles.enhancedSearchSection, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <View style={styles.searchMainRow}>
-            <Ionicons name="search-outline" size={20} color={colors.subtext} />
-            <TextInput
-              style={[styles.enhancedSearchInput, { color: colors.text }]}
-              placeholder="Search by title, description, or ID..."
-              placeholderTextColor={colors.subtext}
-              value={search}
-              onChangeText={setSearch}
-            />
-            <TouchableOpacity
-              onPress={() => {
-                setVoiceSearchActive(true);
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                Alert.alert("Voice Search", "Listening for your query...");
-              }}
-              style={styles.voiceBtn}
-            >
-              <Ionicons name="mic" size={20} color={colors.accent} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterChips}>
-            <View style={styles.chipsContainer}>
-              {['all', 'technical', 'billing', 'general'].map(cat => (
-                <TouchableOpacity
-                  key={cat}
-                  style={[styles.chip, selectedCategory === cat && styles.chipActive]}
-                  onPress={() => setSelectedCategory(cat)}
-                >
-                  <MaterialCommunityIcons
-                    name={cat === 'technical' ? 'code-tags' : cat === 'billing' ? 'credit-card' : 'chat'}
-                    size={12}
-                    color={selectedCategory === cat ? colors.accent : colors.subtext}
-                  />
-                  <Text style={[styles.chipText, selectedCategory === cat && styles.chipTextActive, { color: selectedCategory === cat ? colors.accent : colors.subtext }]}>
-                    {cat === 'all' ? 'All' : cat.charAt(0).toUpperCase() + cat.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </ScrollView>
-
-          <View style={styles.advancedFiltersRow}>
-            <TouchableOpacity
-              style={styles.filterOption}
-              onPress={() => {
-                setSortBy('date');
-                setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc');
-              }}
-            >
-              <Ionicons name="calendar" size={14} color={colors.subtext} />
-              <Text style={[styles.filterOptionText, { color: colors.subtext }]}>
-                {sortBy === 'date' ? `Date ${sortOrder === 'desc' ? '↓' : '↑'}` : 'Date'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.filterOption}
-              onPress={() => {
-                setSortBy('priority');
-                setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc');
-              }}
-            >
-              <Ionicons name="flag" size={14} color={colors.subtext} />
-              <Text style={[styles.filterOptionText, { color: colors.subtext }]}>
-                {sortBy === 'priority' ? `Priority ${sortOrder === 'desc' ? '↓' : '↑'}` : 'Priority'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.filterOption}
-              onPress={() => setCurrentView(currentView === 'list' ? 'grid' : 'list')}
-            >
-              <Ionicons name={currentView === 'list' ? 'grid-outline' : 'list-outline'} size={14} color={colors.subtext} />
-              <Text style={[styles.filterOptionText, { color: colors.subtext }]}>
-                {currentView === 'list' ? 'Grid' : 'List'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.filterOption}
-              onPress={() => setOfflineMode(!offlineMode)}
-            >
-              <Ionicons name={offlineMode ? 'cloud-offline' : 'cloud'} size={14} color={offlineMode ? '#ef4444' : colors.subtext} />
-              <Text style={[styles.filterOptionText, { color: offlineMode ? '#ef4444' : colors.subtext }]}>
-                {offlineMode ? 'Offline' : 'Online'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Status Filters */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-          <View style={styles.filterRowAlt}>
-            {["all", "open", "inprogress", "closed", "rejected"].map((s) => (
-              <TouchableOpacity
-                key={s}
-                style={[
-                  styles.filterBtnAlt,
-                  { backgroundColor: colors.card, borderColor: colors.border },
-                  filterStatus === s && { backgroundColor: colors.accent + "55", borderColor: colors.accent },
-                ]}
-                onPress={() => setFilterStatus(s)}
-              >
-                <MaterialCommunityIcons
-                  name={s === 'all' ? 'format-list-bulleted' : getStatusIcon(s)}
-                  size={12}
-                  color={filterStatus === s ? colors.accent : colors.subtext}
-                />
-                <Text style={[styles.filterTextAlt, { color: colors.subtext }, filterStatus === s && { color: colors.accent }]}>
-                  {s === 'all' ? 'ALL' : s === 'inprogress' ? 'ACTIVE' : s.toUpperCase()}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </ScrollView>
-
-        {loading ? (
-          <ActivityIndicator color={colors.accent} style={{ marginTop: 50 }} size="large" />
-        ) : filteredTickets.length === 0 ? (
-          <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <MaterialCommunityIcons name="ticket-confirmation-outline" size={60} color={colors.subtext} />
-            <Text style={[styles.emptyText, { color: colors.text }]}>No tickets found</Text>
-            <Text style={[styles.emptySubtext, { color: colors.subtext }]}>
-              {search ? "Try different search terms" : "Raise a new ticket to get started"}
-            </Text>
-            <TouchableOpacity
-              style={styles.emptyActionBtn}
-              onPress={() => setIsModalOpen(true)}
-            >
-              <Text style={styles.emptyActionBtnText}>+ Create New Ticket</Text>
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <View style={currentView === 'grid' ? styles.gridContainer : styles.listContainer}>
-            {filteredTickets.map((t, index) => (
-              <Animated.View
-                key={t._id}
-                style={[
-                  currentView === 'grid' ? styles.gridCard : styles.ticketCard,
-                  {
-                    opacity: fadeAnim,
-                    backgroundColor: colors.card,
-                    borderColor: colors.border,
-                    transform: [{ translateY: fadeAnim.interpolate({ inputRange: [0, 1], outputRange: [50, 0] }) }]
-                  }
-                ]}
-              >
-                <View style={[styles.priorityBar, { backgroundColor: getPriorityColor(t.priority) }]} />
-
-                <TouchableOpacity
-                  onPress={() => {
-                    setSelectedTicket(t);
-                    setDetailModalVisible(true);
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  }}
-                  activeOpacity={0.9}
-                >
-                  <View style={styles.ticketHeader}>
-                    <View style={styles.titleArea}>
-                      <Text style={[styles.ticketTitle, { color: colors.text }]} numberOfLines={1}>{t.title}</Text>
-                      <View style={styles.metaRow}>
-                        <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(t.priority) + "15" }]}>
-                          <MaterialCommunityIcons
-                            name={getPriorityIcon(t.priority)}
-                            size={10}
-                            color={getPriorityColor(t.priority)}
-                          />
-                          <Text style={[styles.priorityText, { color: getPriorityColor(t.priority) }]}>
-                            {t.priority.toUpperCase()}
-                          </Text>
-                        </View>
-                        <View style={styles.categoryBadge}>
-                          <MaterialCommunityIcons name="tag-outline" size={10} color={colors.accent} />
-                          <Text style={[styles.categoryText, { color: colors.accent }]}>{t.category || "General"}</Text>
-                        </View>
-                      </View>
-                    </View>
-                    <View style={[styles.statusBadge, { backgroundColor: getStatusColor(t.status) + "22" }]}>
-                      <View style={[styles.statusDot, { backgroundColor: getStatusColor(t.status) }]} />
-                      <Text style={[styles.statusText, { color: getStatusColor(t.status) }]}>
-                        {t.status === 'inprogress' ? 'IN PROGRESS' : t.status.toUpperCase()}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <Text style={[styles.ticketDesc, { color: colors.subtext }]} numberOfLines={2}>
-                    {t.description}
-                  </Text>
-
-                  {t.status === 'inprogress' && (
-                    <View style={styles.progressContainer}>
-                      <View style={styles.progressBarBg}>
-                        <View style={[styles.progressBarFill, { width: '65%', backgroundColor: getStatusColor(t.status) }]} />
-                      </View>
-                      <Text style={[styles.progressText, { color: colors.subtext }]}>65% Complete</Text>
-                    </View>
-                  )}
-
-                  {t.adminReply && (
-                    <View style={[styles.replyBox, { backgroundColor: isDarkMode ? "#020617" : "#f1f5f9" }]}>
-                      <View style={styles.replyHeader}>
-                        <MaterialCommunityIcons name="shield-account" size={14} color={colors.accent} />
-                        <Text style={[styles.replyLabel, { color: colors.accent }]}>Support Response</Text>
-                      </View>
-                      <Text style={[styles.replyText, { color: colors.subtext }]} numberOfLines={2}>{t.adminReply}</Text>
-                    </View>
-                  )}
-
-                  <View style={styles.cardFooter}>
-                    <View style={styles.footerLeft}>
-                      <Ionicons name="time-outline" size={12} color={colors.subtext} />
-                      <Text style={[styles.footerText, { color: colors.subtext }]}>
-                        {new Date(t.createdAt).toLocaleDateString()}
-                      </Text>
-                    </View>
-                    <View style={styles.footerRight}>
-                      <TouchableOpacity
-                        style={styles.actionIcon}
-                        onPress={() => copyTicketId(t._id)}
-                      >
-                        <Ionicons name="copy-outline" size={14} color={colors.subtext} />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.actionIcon}
-                        onPress={() => shareTicket(t)}
-                      >
-                        <Ionicons name="share-outline" size={14} color={colors.subtext} />
-                      </TouchableOpacity>
-                      <View style={[styles.commentCount, { backgroundColor: colors.border }]}>
-                        <Ionicons name="chatbubble-outline" size={10} color={colors.subtext} />
-                        <Text style={[styles.commentCountText, { color: colors.subtext }]}>{t.comments.length}</Text>
-                      </View>
-                    </View>
-                  </View>
-                </TouchableOpacity>
-
-                <View style={[styles.quickReplySection, { borderTopColor: colors.border }]}>
-                  <TextInput
-                    style={[styles.quickReplyInput, { color: colors.text, backgroundColor: colors.bg }]}
-                    placeholder="Quick reply..."
-                    placeholderTextColor={colors.subtext}
-                    value={commentText}
-                    onChangeText={setCommentText}
-                  />
-                  <TouchableOpacity
-                    style={styles.sendReplyBtn}
-                    onPress={() => handleAddComment(t._id)}
-                  >
-                    <Ionicons name="send" size={18} color={colors.accent} />
-                  </TouchableOpacity>
-                </View>
-              </Animated.View>
-            ))}
           </View>
         )}
+
+        {/* Tickets Section - Filtered View */}
+        {activeTab === 'Tickets' && (
+          <>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>Recent Activity</Text>
+
+            <View style={[styles.enhancedSearchSection, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={styles.searchMainRow}>
+                <Ionicons name="search-outline" size={20} color={colors.subtext} />
+                <TextInput
+                  style={[styles.enhancedSearchInput, { color: colors.text }]}
+                  placeholder="Search by title, description, or ID..."
+                  placeholderTextColor={colors.subtext}
+                  value={search}
+                  onChangeText={setSearch}
+                />
+              </View>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterChips}>
+                <View style={styles.chipsContainer}>
+                  {['all', 'technical', 'billing', 'general'].map(cat => (
+                    <TouchableOpacity
+                      key={cat}
+                      style={[styles.chip, selectedCategory === cat && styles.chipActive]}
+                      onPress={() => setSelectedCategory(cat)}
+                    >
+                      <Text style={[styles.chipText, selectedCategory === cat && styles.chipTextActive, { color: selectedCategory === cat ? colors.accent : colors.subtext }]}>
+                        {cat === 'all' ? 'All' : cat.charAt(0).toUpperCase() + cat.slice(1)}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </ScrollView>
+            </View>
+
+            {/* Status Filters */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+              <View style={styles.filterRowAlt}>
+                {["all", "open", "inprogress", "closed", "rejected"].map((s) => (
+                  <TouchableOpacity
+                    key={s}
+                    style={[
+                      styles.filterBtnAlt,
+                      { backgroundColor: colors.card, borderColor: colors.border },
+                      filterStatus === s && { backgroundColor: colors.accent + "33", borderColor: colors.accent },
+                    ]}
+                    onPress={() => setFilterStatus(s)}
+                  >
+                    <Text style={[styles.filterTextAlt, { color: colors.subtext }, filterStatus === s && { color: colors.accent }]}>
+                      {s.toUpperCase()}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+
+            {loading ? (
+              <ActivityIndicator color={colors.accent} style={{ marginTop: 50 }} size="large" />
+            ) : filteredTickets.length === 0 ? (
+              <View style={[styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <MaterialCommunityIcons name="ticket-confirmation-outline" size={60} color={colors.subtext} />
+                <Text style={[styles.emptyText, { color: colors.text }]}>No tickets matching filters</Text>
+              </View>
+            ) : (
+              <View style={currentView === 'grid' ? styles.gridContainer : styles.listContainer}>
+                {filteredTickets.map((t) => (
+                  <Animated.View
+                    key={t._id}
+                    style={[
+                      styles.ticketCard,
+                      { opacity: fadeAnim, backgroundColor: colors.card, borderColor: colors.border }
+                    ]}
+                  >
+                    <TouchableOpacity
+                      onPress={() => {
+                        setSelectedTicket(t);
+                        setDetailModalVisible(true);
+                      }}
+                    >
+                      <View style={styles.ticketHeader}>
+                        <Text style={[styles.ticketTitle, { color: colors.text }]}>{t.title}</Text>
+                        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(t.status) + "22" }]}>
+                          <Text style={[styles.statusText, { color: getStatusColor(t.status) }]}>{t.status.toUpperCase()}</Text>
+                        </View>
+                      </View>
+                      <Text style={[styles.ticketDesc, { color: colors.subtext }]} numberOfLines={2}>{t.description}</Text>
+                    </TouchableOpacity>
+                  </Animated.View>
+                ))}
+              </View>
+            )}
+          </>
+        )}
+
+        {/* Support Section - Filtered View */}
+        {activeTab === 'Support' && (
+          <View style={[styles.footerProfileSection, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.footerSupportBox}>
+              <View style={styles.supportIconWrapper}>
+                <Ionicons name="headset-outline" size={32} color={colors.accent} />
+              </View>
+              <View style={{ flex: 1, marginLeft: 16 }}>
+                <Text style={[styles.footerSupportTitle, { color: colors.text, fontSize: 18 }]}>24/7 Support Active</Text>
+                <Text style={[styles.footerSupportSubtitle, { color: colors.subtext }]}>Our administrators are ready to assist you.</Text>
+              </View>
+            </View>
+
+            <View style={[styles.detailInfo, { backgroundColor: colors.bg, marginTop: 20 }]}>
+              <Text style={[styles.detailLabel, { color: colors.subtext }]}>Primary Admin Contact</Text>
+              <Text style={[styles.detailValue, { color: colors.text }]}>admin-support@cr-raise.com</Text>
+
+              <Text style={[styles.detailLabel, { color: colors.subtext, marginTop: 12 }]}>Resource Helpdesk</Text>
+              <Text style={[styles.detailValue, { color: colors.text }]}>internal-portal.company.com/support</Text>
+            </View>
+          </View>
+        )}
+
+        {/* Profile Section - Filtered View */}
+        {activeTab === 'Profile' && (
+          <View style={[styles.footerProfileSection, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={styles.footerProfileTop}>
+              <View style={[styles.footerAvatar, { backgroundColor: '#7c3aed' }]}>
+                <Text style={styles.footerAvatarText}>{user?.name?.charAt(0).toUpperCase() || 'M'}</Text>
+              </View>
+              <View style={styles.footerUserInfo}>
+                <Text style={[styles.footerUserName, { color: colors.text }]}>{user?.name || 'Member'}</Text>
+                <Text style={[styles.footerUserCompany, { color: colors.subtext }]}>
+                  {user?.companyName || "Organization Member"}
+                </Text>
+              </View>
+            </View>
+
+            <View style={[styles.detailInfo, { backgroundColor: colors.bg }]}>
+              <Text style={[styles.detailLabel, { color: colors.subtext }]}>Email Identity</Text>
+              <Text style={[styles.detailValue, { color: colors.text }]}>{user?.email}</Text>
+
+              <Text style={[styles.detailLabel, { color: colors.subtext, marginTop: 12 }]}>Current Role</Text>
+              <Text style={[styles.detailValue, { color: colors.text }]}>{user?.role?.toUpperCase() || 'EMPLOYEE'}</Text>
+
+              <Text style={[styles.detailLabel, { color: colors.subtext, marginTop: 12 }]}>Company ID</Text>
+              <Text style={[styles.detailValue, { color: colors.text }]}>{user?.companyId || 'N/A'}</Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.menuItem, { backgroundColor: colors.bg, marginTop: 20, borderRadius: 12 }]}
+              onPress={() => setShowPasswordModal(true)}
+            >
+              <Ionicons name="lock-closed-outline" size={20} color={colors.accent} />
+              <Text style={[styles.menuItemText, { color: colors.text }]}>Security Settings</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {/* <View style={[styles.navigationSection, { marginTop: 24 }]}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.navTabsScroll}>
+            {['Tickets', 'Activity Analytics', 'Support', 'Profile'].map((tab) => (
+              <TouchableOpacity
+                key={tab}
+                style={[styles.navTabChip, { borderColor: colors.border, backgroundColor: colors.card, paddingVertical: 12, minWidth: 100, alignItems: 'center' }, activeTab === tab && { borderColor: colors.accent, backgroundColor: colors.accent + '15' }]}
+                onPress={() => {
+                  setActiveTab(tab);
+                  if (tab === 'Profile') setShowProfileMenu(true);
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                }}
+              >
+                {/* <Text style={[styles.navTabChipText, { color: colors.text }]}>{tab}</Text> */}
+        {/* </TouchableOpacity> */}
+        {/* ))} */}
+        {/* </ScrollView> */}
+
+        {/* <View style={styles.realtimeSection}>
+            <TouchableOpacity style={[styles.indicatorChip, { backgroundColor: 'rgba(16, 185, 129, 0.1)', borderColor: '#10b981' }]}>
+              <View style={[styles.pulsingDotSmall, { backgroundColor: '#10b981' }]} />
+              <Text style={[styles.indicatorText, { color: '#10b981' }]}>Live Updates</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.indicatorChip, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name="refresh-outline" size={14} color={colors.accent} />
+              <Text style={[styles.indicatorText, { color: colors.subtext }]}>Updated 2 min ago</Text>
+            </TouchableOpacity>
+          </View> */}
+        {/* </View> */}
+
       </ScrollView>
 
       {/* Quick Action FAB */}
@@ -885,7 +816,7 @@ export default function EmployeeDashboard() {
 
                 <Text style={[styles.inputLabel, { color: colors.subtext }]}>Description *</Text>
                 <TextInput
-                  style={[styles.enhancedInput, { height: 100, textAlignVertical: "top", backgroundColor: colors.bg, borderColor: colors.border }]}
+                  style={[styles.enhancedInput, { height: 100, textAlignVertical: "top", color: colors.text, backgroundColor: colors.bg, borderColor: colors.border }]}
                   placeholder="Provide detailed information about your issue..."
                   placeholderTextColor={colors.subtext}
                   multiline
@@ -999,28 +930,28 @@ export default function EmployeeDashboard() {
                       <View style={styles.timelineContent}>
                         <Text style={[styles.timelineTitle, { color: colors.text }]}>Created</Text>
                         <Text style={[styles.timelineDate, { color: colors.subtext }]}>
-                          {new Date(selectedTicket.createdAt).toLocaleString()}
+                          {selectedTicket?.createdAt ? new Date(selectedTicket.createdAt).toLocaleString() : 'N/A'}
                         </Text>
                       </View>
                     </View>
-                    {selectedTicket.status !== 'open' && (
+                    {selectedTicket?.status !== 'open' && (
                       <View style={styles.timelineItem}>
                         <View style={[styles.timelineDot, { backgroundColor: '#6366f1' }]} />
                         <View style={styles.timelineContent}>
                           <Text style={[styles.timelineTitle, { color: colors.text }]}>In Progress</Text>
                           <Text style={[styles.timelineDate, { color: colors.subtext }]}>
-                            {new Date(selectedTicket.createdAt).toLocaleString()}
+                            {selectedTicket?.createdAt ? new Date(selectedTicket.createdAt).toLocaleString() : 'N/A'}
                           </Text>
                         </View>
                       </View>
                     )}
-                    {selectedTicket.status === 'closed' && (
+                    {selectedTicket?.status === 'closed' && (
                       <View style={styles.timelineItem}>
                         <View style={[styles.timelineDot, { backgroundColor: '#10b981' }]} />
                         <View style={styles.timelineContent}>
                           <Text style={[styles.timelineTitle, { color: colors.text }]}>Resolved</Text>
                           <Text style={[styles.timelineDate, { color: colors.subtext }]}>
-                            {new Date(selectedTicket.createdAt).toLocaleString()}
+                            {selectedTicket?.createdAt ? new Date(selectedTicket.createdAt).toLocaleString() : 'N/A'}
                           </Text>
                         </View>
                       </View>
@@ -1029,23 +960,54 @@ export default function EmployeeDashboard() {
 
                   <View style={[styles.detailInfo, { backgroundColor: colors.bg }]}>
                     <Text style={[styles.detailLabel, { color: colors.subtext }]}>Ticket ID</Text>
-                    <Text style={[styles.detailValue, { color: colors.text }]}>{selectedTicket._id}</Text>
+                    <Text style={[styles.detailValue, { color: colors.text }]}>{selectedTicket?._id}</Text>
 
                     <Text style={[styles.detailLabel, { color: colors.subtext, marginTop: 12 }]}>Description</Text>
-                    <Text style={[styles.detailValue, { color: colors.text }]}>{selectedTicket.description}</Text>
+                    <Text style={[styles.detailValue, { color: colors.text }]}>{selectedTicket?.description}</Text>
 
-                    {selectedTicket.assignedTo && (
+                    {selectedTicket?.adminReply && (
+                      <View style={[styles.adminReplyCard, { backgroundColor: isDarkMode ? "#1e1b4b" : "#f5f3ff", borderColor: "#818cf8" }]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 6 }}>
+                          <MaterialCommunityIcons name="shield-check" size={16} color="#6366f1" />
+                          <Text style={[styles.detailLabel, { color: "#6366f1", marginBottom: 0 }]}>OFFICIAL RESPONSE</Text>
+                        </View>
+                        <Text style={[styles.adminReplyText, { color: colors.text }]}>{selectedTicket.adminReply}</Text>
+                      </View>
+                    )}
+
+                    {selectedTicket?.assignedTo && (
                       <>
                         <Text style={[styles.detailLabel, { color: colors.subtext, marginTop: 12 }]}>Assigned To</Text>
-                        <Text style={[styles.detailValue, { color: colors.text }]}>{selectedTicket.assignedTo.name}</Text>
+                        <Text style={[styles.detailValue, { color: colors.text }]}>{selectedTicket?.assignedTo?.name}</Text>
+                      </>
+                    )}
+
+                    {selectedTicket?.attachments && selectedTicket.attachments.length > 0 && (
+                      <>
+                        <Text style={[styles.detailLabel, { color: colors.subtext, marginTop: 12 }]}>Attachments ({selectedTicket.attachments.length})</Text>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                          {selectedTicket.attachments.map((file, idx) => (
+                            <TouchableOpacity
+                              key={idx}
+                              style={[styles.attachmentChip, { backgroundColor: colors.card, borderColor: colors.border }]}
+                              onPress={() => {
+                                const url = file.startsWith('http') ? file : `${SOCKET_URL}/${file.replace(/^\/+/, '')}`;
+                                WebBrowser.openBrowserAsync(url).catch(() => Alert.alert("Error", "Could not open file"));
+                              }}
+                            >
+                              <Ionicons name="document-attach-outline" size={16} color={colors.accent} />
+                              <Text style={[styles.attachmentText, { color: colors.text }]} numberOfLines={1}>File {idx + 1}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
                       </>
                     )}
                   </View>
 
                   <Text style={[styles.commentsTitle, { color: colors.text }]}>
-                    <Ionicons name="chatbubbles" size={16} /> Comments ({selectedTicket.comments.length})
+                    <Ionicons name="chatbubbles" size={16} /> Comments ({selectedTicket?.comments?.length || 0})
                   </Text>
-                  {selectedTicket.comments.map((comment, idx) => (
+                  {selectedTicket?.comments?.map((comment, idx) => (
                     <View key={idx} style={[styles.commentItem, { backgroundColor: colors.bg }]}>
                       <Text style={[styles.commentUserName, { color: colors.accent }]}>{comment.user.name}</Text>
                       <Text style={[styles.commentTime, { color: colors.subtext }]}>
@@ -1062,9 +1024,9 @@ export default function EmployeeDashboard() {
       </Modal>
       {/* Profile Menu Dropdown */}
       <Modal visible={showProfileMenu} transparent animationType="fade">
-        <TouchableOpacity 
-          style={styles.menuOverlay} 
-          activeOpacity={1} 
+        <TouchableOpacity
+          style={styles.menuOverlay}
+          activeOpacity={1}
           onPress={() => setShowProfileMenu(false)}
         >
           <View style={[styles.profileMenu, { backgroundColor: colors.card, borderLeftWidth: 1, borderBottomWidth: 1, borderColor: colors.border }]}>
@@ -1078,8 +1040,8 @@ export default function EmployeeDashboard() {
               </View>
             </View>
 
-            <TouchableOpacity 
-              style={styles.menuItem} 
+            <TouchableOpacity
+              style={styles.menuItem}
               onPress={() => {
                 setShowProfileMenu(false);
                 setShowPasswordModal(true);
@@ -1089,8 +1051,8 @@ export default function EmployeeDashboard() {
               <Text style={[styles.menuItemText, { color: colors.text }]}>Change Password</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: colors.border }]} 
+            <TouchableOpacity
+              style={[styles.menuItem, { borderTopWidth: 1, borderTopColor: colors.border }]}
               onPress={() => {
                 setShowProfileMenu(false);
                 logout();
@@ -1113,14 +1075,14 @@ export default function EmployeeDashboard() {
                 <Ionicons name="close" size={28} color={colors.text} />
               </TouchableOpacity>
             </View>
-            
+
             <TextInput
               placeholder="Current Password"
               placeholderTextColor={colors.subtext}
               secureTextEntry
               style={[styles.modalInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.bg }]}
               value={passForm.current}
-              onChangeText={(t) => setPassForm({...passForm, current: t})}
+              onChangeText={(t) => setPassForm({ ...passForm, current: t })}
             />
             <TextInput
               placeholder="New Password"
@@ -1128,7 +1090,7 @@ export default function EmployeeDashboard() {
               secureTextEntry
               style={[styles.modalInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.bg }]}
               value={passForm.new}
-              onChangeText={(t) => setPassForm({...passForm, new: t})}
+              onChangeText={(t) => setPassForm({ ...passForm, new: t })}
             />
             <TextInput
               placeholder="Confirm Password"
@@ -1136,36 +1098,55 @@ export default function EmployeeDashboard() {
               secureTextEntry
               style={[styles.modalInput, { color: colors.text, borderColor: colors.border, backgroundColor: colors.bg }]}
               value={passForm.confirm}
-              onChangeText={(t) => setPassForm({...passForm, confirm: t})}
+              onChangeText={(t) => setPassForm({ ...passForm, confirm: t })}
             />
 
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[styles.submitBtn, { backgroundColor: colors.accent, height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center' }]}
               onPress={handleChangePassword}
               disabled={passLoading}
             >
-              {passLoading ? <ActivityIndicator color="#fff" /> : 
+              {passLoading ? <ActivityIndicator color="#fff" /> :
                 <Text style={styles.submitBtnText}>Update Password</Text>
               }
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
+
+      {/* Real-time Insights Floating Indicator (Optional) */}
+
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  content: { padding: 24, paddingTop: 60, paddingBottom: 100 },
+  content: { padding: 24, paddingTop: 140, paddingBottom: 120 },
 
   blurHeader: { position: 'absolute', top: 0, left: 0, right: 0, zIndex: 100, paddingTop: 60, paddingBottom: 16, paddingHorizontal: 24 },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  headerLeft: { flex: 1 },
+  headerProfileRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12, gap: 12 },
+  headerUserNameBox: { flex: 1 },
+  userNameAlt: { fontSize: 18, fontWeight: '800' },
+  companyNameText: { fontSize: 11, fontWeight: '600', textTransform: 'uppercase' },
+  headerRight: { flexDirection: 'row', gap: 10, alignItems: 'center' },
+  gradientAvatar: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', borderWidth: 2, borderColor: 'rgba(255,255,255,0.2)' },
   greeting: { fontSize: 14 },
   userName: { fontSize: 24, fontWeight: "800", marginTop: 2 },
   iconBtn: { backgroundColor: "#1e293b", padding: 10, borderRadius: 12, borderWidth: 1 },
   profileIconBtn: { width: 44, height: 44, borderRadius: 22, justifyContent: "center", alignItems: "center", borderWidth: 1 },
   profileInitialText: { color: "#fff", fontSize: 18, fontWeight: "800" },
+
+  navigationSection: { marginBottom: 24, gap: 12 },
+  navTabsScroll: { marginBottom: 8 },
+  navTabChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 12, borderWidth: 1, marginRight: 10 },
+  navTabChipText: { fontSize: 13, fontWeight: '700' },
+  realtimeSection: { flexDirection: 'row', gap: 10 },
+  indicatorChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1 },
+  pulsingDotSmall: { width: 8, height: 8, borderRadius: 4 },
+  indicatorText: { fontSize: 11, fontWeight: '700' },
 
 
   notificationBadge: { position: 'absolute', top: -5, right: -5, backgroundColor: '#ef4444', borderRadius: 10, minWidth: 18, height: 18, justifyContent: 'center', alignItems: 'center' },
@@ -1322,4 +1303,31 @@ const styles = StyleSheet.create({
   menuItem: { flexDirection: 'row', alignItems: 'center', padding: 12, gap: 12, borderRadius: 8 },
   menuItemText: { fontSize: 14, fontWeight: '600' },
   modalInput: { borderRadius: 12, padding: 14, fontSize: 15, marginBottom: 16, borderWidth: 1 },
+
+  // Fixed Styles
+  modalContent: { borderRadius: 24, padding: 24, shadowColor: '#000', shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.25, shadowRadius: 15, elevation: 12 },
+
+  // New Impressive Footer Styles
+  footerProfileSection: { marginTop: 40, padding: 24, borderRadius: 32, borderWidth: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.15, shadowRadius: 24, elevation: 15, marginBottom: 40 },
+  footerProfileTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
+  footerAvatar: { width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', elevation: 8, shadowColor: '#6366f1', shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.4, shadowRadius: 10 },
+  footerAvatarText: { color: '#fff', fontSize: 28, fontWeight: '900' },
+  footerUserInfo: { flex: 1, marginLeft: 20 },
+  footerUserName: { fontSize: 20, fontWeight: '900', marginBottom: 4 },
+  footerUserCompany: { fontSize: 13, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.8 },
+  liveSyncBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(16, 185, 129, 0.1)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 24, borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.2)' },
+  pulsingDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#10b981', marginRight: 8 },
+  liveSyncText: { color: '#10b981', fontSize: 12, fontWeight: '800' },
+  footerRealtimeMessage: { flexDirection: 'row', alignItems: 'center', padding: 16, backgroundColor: 'rgba(99, 102, 241, 0.05)', borderRadius: 20, marginBottom: 24, borderWidth: 1, borderColor: 'rgba(99, 102, 241, 0.1)' },
+  realtimeText: { fontSize: 13, marginLeft: 12, fontWeight: '600', flex: 1, lineHeight: 20 },
+  footerSupportBox: { flexDirection: 'row', alignItems: 'center', padding: 20, borderRadius: 24, borderWidth: 1, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 12, elevation: 3 },
+  supportIconWrapper: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(99, 102, 241, 0.1)', justifyContent: 'center', alignItems: 'center', marginRight: 20 },
+  footerSupportTitle: { fontSize: 16, fontWeight: '900', marginBottom: 6 },
+  footerSupportSubtitle: { fontSize: 14, fontWeight: '600' },
+  floatingSyncStatus: { position: 'absolute', bottom: 100, left: 24, backgroundColor: 'rgba(15, 23, 42, 0.9)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  syncStatusText: { color: '#94a3b8', fontSize: 10, fontWeight: '700' },
+  attachmentChip: { flexDirection: 'row', alignItems: 'center', padding: 10, borderRadius: 12, borderWidth: 1, marginRight: 10, gap: 8 },
+  attachmentText: { fontSize: 12, fontWeight: '600' },
+  adminReplyCard: { marginTop: 16, padding: 14, borderRadius: 12, borderWidth: 1, borderLeftWidth: 4 },
+  adminReplyText: { fontSize: 13, lineHeight: 18, fontWeight: '500' },
 });

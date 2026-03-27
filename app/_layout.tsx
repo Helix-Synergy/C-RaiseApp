@@ -8,7 +8,18 @@ import Toast from "react-native-toast-message";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 
-import Animated, { FadeOut, useSharedValue, useAnimatedStyle, withSpring, withTiming, withDelay, Easing, runOnJS } from "react-native-reanimated";
+import Animated, {
+  FadeOut,
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  withDelay,
+  Easing,
+  runOnJS,
+  withSequence,
+  cancelAnimation
+} from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { StyleSheet, Text } from "react-native";
@@ -18,8 +29,11 @@ function SplashScreen({ onComplete }: { onComplete: () => void }) {
   const logoOpacity = useSharedValue(0);
   const textOpacity = useSharedValue(0);
   const textTranslateY = useSharedValue(20);
+  const rocketTranslateY = useSharedValue(0);
+  const rocketOpacity = useSharedValue(1);
 
   useEffect(() => {
+    // Initial entrance animation
     logoScale.value = withSpring(1, { damping: 10, stiffness: 100 });
     logoOpacity.value = withTiming(1, { duration: 800 });
 
@@ -31,11 +45,30 @@ function SplashScreen({ onComplete }: { onComplete: () => void }) {
       })
     );
 
-    const timer = setTimeout(() => {
-      onComplete();
-    }, 5000); // Wait exactly 5 seconds
+    // Rocket launch animation after 4 seconds (1 second before splash ends)
+    const launchTimer = setTimeout(() => {
+      // Trigger haptic feedback for launch
+      runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Heavy);
 
-    return () => clearTimeout(timer);
+      // Animate rocket flying up
+      rocketTranslateY.value = withSequence(
+        withTiming(-30, { duration: 200, easing: Easing.out(Easing.quad) }),
+        withTiming(-800, { duration: 800, easing: Easing.in(Easing.quad) })
+      );
+
+      // Fade out rocket
+      rocketOpacity.value = withTiming(0, { duration: 600, delay: 200 });
+
+      // Fade out text
+      textOpacity.value = withTiming(0, { duration: 400, delay: 200 });
+
+      // Complete after animation finishes
+      setTimeout(() => {
+        runOnJS(onComplete)();
+      }, 1000);
+    }, 2000); // Start launch animation at 4 seconds
+
+    return () => clearTimeout(launchTimer);
   }, []);
 
   const logoStyle = useAnimatedStyle(() => ({
@@ -48,9 +81,14 @@ function SplashScreen({ onComplete }: { onComplete: () => void }) {
     transform: [{ translateY: textTranslateY.value }],
   }));
 
+  const rocketStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: rocketTranslateY.value }],
+    opacity: rocketOpacity.value,
+  }));
+
   return (
     <Animated.View exiting={FadeOut.duration(500)} style={styles.splashContainer}>
-      <Animated.View style={[styles.iconContainer, logoStyle]}>
+      <Animated.View style={[styles.iconContainer, logoStyle, rocketStyle]}>
         <Ionicons name="rocket" size={80} color="#fff" />
       </Animated.View>
       <Animated.View style={[styles.textContainer, textStyle]}>
@@ -105,7 +143,7 @@ function RootNavigator() {
             <Stack.Screen name="modal" options={{ presentation: "modal" }} />
           </Stack>
         )}
-        
+
         <Toast />
         <StatusBar style="light" />
 
