@@ -10,6 +10,7 @@ import {
   Platform,
   ScrollView,
   StatusBar,
+  Image,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/context/AuthContext";
@@ -80,8 +81,12 @@ export default function LoginScreen() {
 
         {/* Logo / Header */}
         <View style={styles.header}>
-          <View style={[styles.logoCircle, { backgroundColor: isDarkMode ? "#1e1b4b" : "rgba(99, 102, 241, 0.1)", borderColor: colors.accent }]}>
-            <Ionicons name="ticket-outline" size={40} color={colors.accent} />
+          <View style={[styles.logoCircle, { backgroundColor: "#fff", borderColor: colors.accent }]}>
+            <Image 
+              source={require("../assets/images/c-raise-logo.png")} 
+              style={{ width: "70%", height: "70%" }}
+              resizeMode="contain"
+            />
           </View>
           <Text style={[styles.appName, { color: colors.text }]}>C-Raise</Text>
           <Text style={[styles.tagline, { color: colors.subtext }]}>Ticketing & Support Platform</Text>

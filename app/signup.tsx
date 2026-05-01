@@ -10,6 +10,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/context/AuthContext";
@@ -55,7 +56,7 @@ export default function SignupScreen() {
         text2: "Account created successfully",
       });
 
-    } catch (err) {
+    } catch (err: any) {
       const msg = err?.message || err?.response?.data?.message;
 
       // 👑 If admin not exists → create admin
@@ -110,8 +111,12 @@ export default function SignupScreen() {
 
         {/* Header */}
         <View style={styles.header}>
-          <View style={styles.logoCircle}>
-            <Ionicons name="people-outline" size={36} color="#6366f1" />
+          <View style={[styles.logoCircle, { backgroundColor: "#fff" }]}>
+            <Image 
+              source={require("../assets/images/c-raise-logo.png")} 
+              style={{ width: "70%", height: "70%" }}
+              resizeMode="contain"
+            />
           </View>
           <Text style={styles.title}>New Employee</Text>
           <Text style={styles.subtitle}>Join your company's ticketing platform</Text>

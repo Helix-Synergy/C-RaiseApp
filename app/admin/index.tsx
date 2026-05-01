@@ -384,6 +384,14 @@ export default function AdminDashboard({ initialView = "today" }: { initialView?
     };
   }, [socket]);
 
+  useEffect(() => {
+    if (selectedTicket) {
+      setReplyText(selectedTicket.adminReply || "");
+    } else {
+      setReplyText("");
+    }
+  }, [selectedTicket]);
+
   const fetchData = async () => {
     if (!token) return;
     setLoading(true);
@@ -974,6 +982,17 @@ export default function AdminDashboard({ initialView = "today" }: { initialView?
                   </TouchableOpacity>
                 </View>
                 <Text style={[styles.ticketDesc, isDarkMode && styles.darkMutedText]} numberOfLines={2}>{t.description}</Text>
+                
+                {t.adminReply && (
+                  <View style={[styles.replyPreview, { backgroundColor: isDarkMode ? 'rgba(26, 115, 232, 0.1)' : '#f8f9fa' }]}>
+                    <Ionicons name="chatbubble-ellipses-outline" size={14} color="#1a73e8" />
+                    <Text style={[styles.replyPreviewText, { color: isDarkMode ? "#94a3b8" : "#5f6368" }]} numberOfLines={1}>
+                      <Text style={{ fontWeight: 'bold', color: '#1a73e8' }}>Response: </Text>
+                      {t.adminReply}
+                    </Text>
+                  </View>
+                )}
+
                 <View style={styles.ticketFooter}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                     <Ionicons name="time-outline" size={12} color="#5f6368" />
@@ -1051,6 +1070,16 @@ export default function AdminDashboard({ initialView = "today" }: { initialView?
                   </ScrollView>
                 </View>
               )}
+
+              {selectedTicket?.adminReply && (
+                <View style={styles.modalInfo}>
+                  <Text style={styles.modalLabel}>PREVIOUS RESPONSE</Text>
+                  <View style={[styles.adminReplyCard, { backgroundColor: isDarkMode ? "#0f172a" : "#e8f0fe", borderColor: "#1a73e8" }]}>
+                    <Text style={[styles.modalValue, isDarkMode && styles.darkText]}>{selectedTicket.adminReply}</Text>
+                  </View>
+                </View>
+              )}
+
               <TextInput
                 placeholder="Type internal reply or resolution..."
                 placeholderTextColor="#999"
@@ -1371,4 +1400,23 @@ const styles = StyleSheet.create({
   contentContainer: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 100 },
   countBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10, marginLeft: 4 },
   countText: { fontSize: 10, color: '#5f6368', fontWeight: 'bold' },
+  replyPreview: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    gap: 6, 
+    marginTop: 8, 
+    padding: 8, 
+    borderRadius: 8 
+  },
+  replyPreviewText: { 
+    fontSize: 12, 
+    flex: 1 
+  },
+  adminReplyCard: { 
+    marginTop: 8, 
+    padding: 12, 
+    borderRadius: 12, 
+    borderWidth: 1, 
+    borderLeftWidth: 4 
+  },
 });

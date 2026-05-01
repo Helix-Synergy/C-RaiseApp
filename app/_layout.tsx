@@ -22,15 +22,15 @@ import Animated, {
 } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
-import { StyleSheet, Text } from "react-native";
+import { StyleSheet, Text, Image } from "react-native";
 
 function SplashScreen({ onComplete }: { onComplete: () => void }) {
   const logoScale = useSharedValue(0.5);
   const logoOpacity = useSharedValue(0);
   const textOpacity = useSharedValue(0);
   const textTranslateY = useSharedValue(20);
-  const rocketTranslateY = useSharedValue(0);
-  const rocketOpacity = useSharedValue(1);
+  const logoTranslateY = useSharedValue(0);
+  const logoExitOpacity = useSharedValue(1);
 
   useEffect(() => {
     // Initial entrance animation
@@ -50,14 +50,14 @@ function SplashScreen({ onComplete }: { onComplete: () => void }) {
       // Trigger haptic feedback for launch
       runOnJS(Haptics.impactAsync)(Haptics.ImpactFeedbackStyle.Heavy);
 
-      // Animate rocket flying up
-      rocketTranslateY.value = withSequence(
+      // Animate logo flying up
+      logoTranslateY.value = withSequence(
         withTiming(-30, { duration: 200, easing: Easing.out(Easing.quad) }),
         withTiming(-800, { duration: 800, easing: Easing.in(Easing.quad) })
       );
 
-      // Fade out rocket
-      rocketOpacity.value = withTiming(0, { duration: 600, delay: 200 });
+      // Fade out logo
+      logoExitOpacity.value = withTiming(0, { duration: 600, delay: 200 });
 
       // Fade out text
       textOpacity.value = withTiming(0, { duration: 400, delay: 200 });
@@ -81,15 +81,19 @@ function SplashScreen({ onComplete }: { onComplete: () => void }) {
     transform: [{ translateY: textTranslateY.value }],
   }));
 
-  const rocketStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: rocketTranslateY.value }],
-    opacity: rocketOpacity.value,
+  const logoAnimationStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: logoTranslateY.value }],
+    opacity: logoExitOpacity.value,
   }));
 
   return (
     <Animated.View exiting={FadeOut.duration(500)} style={styles.splashContainer}>
-      <Animated.View style={[styles.iconContainer, logoStyle, rocketStyle]}>
-        <Ionicons name="rocket" size={80} color="#fff" />
+      <Animated.View style={[styles.iconContainer, logoStyle, logoAnimationStyle]}>
+        <Image 
+          source={require("../assets/images/c-raise-logo.png")} 
+          style={styles.logoImage}
+          resizeMode="contain"
+        />
       </Animated.View>
       <Animated.View style={[styles.textContainer, textStyle]}>
         <Text style={styles.title}>C-RAISE</Text>
@@ -162,18 +166,23 @@ const styles = StyleSheet.create({
     zIndex: 9999,
   },
   iconContainer: {
-    width: 140,
-    height: 140,
-    backgroundColor: "#6366f1",
-    borderRadius: 70,
+    width: 160,
+    height: 160,
+    backgroundColor: "#fff",
+    borderRadius: 80,
     justifyContent: "center",
     alignItems: "center",
     shadowColor: "#6366f1",
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
+    shadowOpacity: 0.3,
     shadowRadius: 20,
     elevation: 15,
     marginBottom: 32,
+    overflow: "hidden", // Ensure image doesn't overflow
+  },
+  logoImage: {
+    width: "80%",
+    height: "80%",
   },
   textContainer: {
     alignItems: "center",
